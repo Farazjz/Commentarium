@@ -1,23 +1,44 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 REM ============================================================
-REM  Thesis RAG - one-click launcher for the API + UI
-REM  Starts the FastAPI backend and the Streamlit UI together
-REM  in a single console, then opens the browser for you.
-REM  Close this window (or press any key) to stop both servers.
+REM  Thesis RAG - background launcher for the API + UI
+REM  Starts the FastAPI backend and the Streamlit UI fully in the
+REM  BACKGROUND (no console windows) via a hidden VBS launcher,
+REM  then opens the browser. Use stop_all.bat (or the UI's
+REM  "Exit & shut down servers" button) to stop both servers.
 REM ============================================================
 
 cd /d "%~dp0"
 
 REM ------------------------------------------------------------
-REM 0. Find the right Python
-REM    Prefer a venv in this folder, then `python`, then `py`.
+REM 0. Find the right Python interpreter
+REM    PY = normal python   PYTHONW = console-free (background)
 REM ------------------------------------------------------------
 set "PY=python"
-if exist ".venv\Scripts\python.exe" (
+set "PYTHONW=pythonw"
+if exist ".venv\Scripts\pythonw.exe" (
+    set "PYTHONW=%~dp0.venv\Scripts\pythonw.exe"
     set "PY=%~dp0.venv\Scripts\python.exe"
-) else if exist "venv\Scripts\python.exe" (
+)
+if exist "venv\Scripts\pythonw.exe" (
+    set "PYTHONW=%~dp0venv\Scripts\pythonw.exe"
     set "PY=%~dp0venv\Scripts\python.exe"
+)
+if "%PY%"=="python" (
+    REM bare python: resolve its real location via PATH, then use the
+    REM pythonw.exe living next to it (avoids Windows Store stubs).
+    set "PYDIR="
+    for /f "delims=" %%W in ('where python 2^>nul') do (
+        if not defined PYDIR set "PYDIR=%%~dpW"
+    )
+    if defined PYDIR (
+        set "PY=!PYDIR!python.exe"
+        if exist "!PYDIR!pythonw.exe" set "PYTHONW=!PYDIR!pythonw.exe"
+    )
+) else (
+    REM python is already a full path -> derive pythonw.exe from the same folder
+    for /f "delims=" %%D in ("%PY%") do set "PYDIR=%%~dpD"
+    if exist "%PYDIR%pythonw.exe" set "PYTHONW=%PYDIR%pythonw.exe"
 )
 
 "%PY%" --version >nul 2>&1
@@ -36,52 +57,41 @@ for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do (
     if /i "%%A"=="PORT" set "API_PORT=%%B"
     if /i "%%A"=="UI_PORT" set "UI_PORT=%%B"
 )
-REM strip any trailing whitespace / CR
-for /f "delims=" %%P in ("%API_PORT%") do set "API_PORT=%%P"
-for /f "delims=" %%P in ("%UI_PORT%") do set "UI_PORT=%%P"
+REM strip trailing whitespace / CR, and potential surrounding quotes
+for /f "delims=" %%P in ("%API_PORT%") do set "API_PORT=%%~P"
+for /f "delims=" %%P in ("%UI_PORT%") do set "UI_PORT=%%~P"
 
 set "API_URL=http://127.0.0.1:%API_PORT%"
 set "UI_URL=http://127.0.0.1:%UI_PORT%"
 
-echo.
-echo  ============================================
-echo   Thesis RAG - starting servers
-echo   API : %API_URL%
-echo   UI  : %UI_URL%
-echo   Close this window to stop everything.
-echo  ============================================
-echo.
+REM ------------------------------------------------------------
+REM 2. Launch both servers hidden via the VBS wrapper
+REM ------------------------------------------------------------
+set "LAUNCH_CWD=%~dp0"
+set "API_PYTHON=%PYTHONW%"
+set "UI_PYTHON=%PYTHONW%"
+set "API_PORT=%API_PORT%"
+set "UI_PORT=%UI_PORT%"
 
-REM ------------------------------------------------------------
-REM 2. Quick check: are the ports already in use?
-REM ------------------------------------------------------------
-netstat -ano | findstr /r /c:":%API_PORT% .*LISTENING" >nul 2>&1
-if not errorlevel 1 (
-    echo [WARN] Port %API_PORT% is already in use. The API may already be running.
+cscript //nologo "%~dp0_launch_hidden.vbs" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Hidden launcher failed - falling back to a visible console.
+    start "" "%PY%" -m uvicorn app.main:app --host 127.0.0.1 --port %API_PORT%
+    start "" "%PY%" -m streamlit run "%~dp0app\ui\main.py" --server.port %UI_PORT% --server.address 127.0.0.1 --server.headless true
 )
 
 REM ------------------------------------------------------------
-REM 3. Start the FastAPI backend (own window titled "API")
-REM ------------------------------------------------------------
-start "Thesis RAG - API (%API_PORT%)" "%PY%" -m uvicorn app.main:app --host 127.0.0.1 --port %API_PORT%
-
-REM ------------------------------------------------------------
-REM 4. Start the Streamlit UI (own window titled "UI")
-REM ------------------------------------------------------------
-start "Thesis RAG - UI (%UI_PORT%)" "%PY%" -m streamlit run app/ui/main.py --server.port %UI_PORT% --server.address 127.0.0.1 --server.headless true
-
-REM ------------------------------------------------------------
-REM 5. Wait for the API to come up, then open the browser
+REM 3. Wait for the API to come up, then open the browser
 REM ------------------------------------------------------------
 echo Waiting for the API to come online...
 set /a tries=0
 :waitapi
 timeout /t 1 /nobreak >nul
-netstat -ano | findstr /r /c:":%API_PORT% .*LISTENING" >nul 2>&1
+netstat -ano 2>nul | findstr /r /c:":%API_PORT% .*LISTENING" >nul 2>&1
 if not errorlevel 1 goto apiup
 set /a tries+=1
 if %tries% lss 30 goto waitapi
-echo [WARN] API did not start within 30s. Check the API window for errors.
+echo [WARN] API did not start within 30s. Check data\logs\app.log for errors.
 goto afterwait
 :apiup
 echo API is up at %API_URL%
@@ -91,25 +101,9 @@ echo Opening the UI in your browser...
 start "" "%UI_URL%"
 
 echo.
-echo Both servers are running. You can:
-echo   - Close this window to shut everything down
-echo   - Or use the "Exit & shut down servers" button in the UI sidebar
+echo  Servers are running in the BACKGROUND (no windows).
+echo  To stop them later, double-click stop_all.bat in this folder,
+echo  or use the "Exit & shut down servers" button in the UI sidebar.
 echo.
-echo Press any key to stop all servers...
-pause >nul
-
-REM ------------------------------------------------------------
-REM 6. On exit: stop the servers that are listening on our ports
-REM ------------------------------------------------------------
-echo Stopping servers...
-set "KILLED="
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%API_PORT% .*LISTENING" /c:":%UI_PORT% .*LISTENING"') do (
-    if not "%%P"=="0" (
-        taskkill /PID %%P /T /F >nul 2>&1
-        set "KILLED=1"
-    )
-)
-if not defined KILLED echo   (nothing was listening on %API_PORT% / %UI_PORT%)
-echo Done. Goodbye!
-timeout /t 1 /nobreak >nul
+timeout /t 3 /nobreak >nul
 exit /b 0

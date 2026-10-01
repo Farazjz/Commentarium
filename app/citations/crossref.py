@@ -16,7 +16,7 @@ import logging
 import re
 import urllib.parse
 
-import httpx
+from app.httpclient import get
 
 logger = logging.getLogger("app")
 
@@ -93,7 +93,7 @@ def fetch_by_doi(doi: str, *, timeout: float = 20.0) -> dict | None:
     if not doi:
         return None
     try:
-        r = httpx.get(f"{CROSSREF_API}/{urllib.parse.quote(doi)}", timeout=timeout)
+        r = get(f"{CROSSREF_API}/{urllib.parse.quote(doi)}", timeout=timeout)
         r.raise_for_status()
         item = r.json()["message"]
         return _normalize_crossref_item(item)
@@ -120,8 +120,8 @@ def search_by_title(
         return []
     params: dict = {"query.bibliographic": q, "rows": max(limit, 1)}
     try:
-        r = httpx.get(CROSSREF_API, params=params, timeout=timeout,
-                      headers={"User-Agent": "ThesisRAG/1.0 (mailto:dev@example.com)"})
+        r = get(CROSSREF_API, params=params, timeout=timeout,
+                headers={"User-Agent": "ThesisRAG/1.0 (mailto:dev@example.com)"})
         r.raise_for_status()
         items = r.json()["message"]["items"]
     except Exception as exc:  # noqa: BLE001

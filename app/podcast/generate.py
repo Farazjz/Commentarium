@@ -29,6 +29,7 @@ import httpx
 
 from app.config import get_settings
 from app.db.metadata import MetadataStore
+from app.httpclient import get_client
 from app.models_openrouter import LLMClientError, chat_completion
 from app.podcast.hosts import Host, get_hosts, host_by_index
 from app.rag.summarize import summarize_many_documents
@@ -193,7 +194,7 @@ def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=None)
     known_voices: set[str] | None = None
     try:
         base = url.rsplit("/audio/speech", 1)[0]
-        with httpx.Client(timeout=10) as client:
+        with get_client(timeout=10) as client:
             r = client.get(f"{base}/voices", headers=headers)
             if r.status_code == 200:
                 data = r.json()
@@ -215,7 +216,7 @@ def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=None)
 
     media = b""
     total = len(script_lines) or 1
-    with httpx.Client(timeout=120) as client:
+    with get_client(timeout=120) as client:
         for idx, line in enumerate(script_lines, start=1):
             voice = voices.get(line.host_index) or voices.get(1) or "tts-1"
             payload = {"model": model, "input": line.text, "voice": voice, "format": fmt}
@@ -250,7 +251,7 @@ def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=None
 
     media = b""
     total = len(script_lines) or 1
-    with httpx.Client(timeout=120) as client:
+    with get_client(timeout=120) as client:
         for idx, line in enumerate(script_lines, start=1):
             voice = voices.get(line.host_index) or ""
             payload = {"text": line.text}
@@ -281,7 +282,7 @@ def _synthesize_google_tts(script_lines, out_path, hosts, cfg, progress=None):
 
     media = b""
     total = len(script_lines) or 1
-    with httpx.Client(timeout=120) as client:
+    with get_client(timeout=120) as client:
         for idx, line in enumerate(script_lines, start=1):
             host = next((h for h in hosts if h.index == line.host_index), hosts[0] if hosts else None)
             if host is None:
@@ -551,7 +552,7 @@ def preview_voice(
         headers = {"Content-Type": "application/json"}
         if cfg.tts_api_key.strip():
             headers["Authorization"] = f"Bearer {cfg.tts_api_key.strip()}"
-        with httpx.Client(timeout=60) as client:
+        with get_client(timeout=60) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
         return resp.content, cfg.tts_api_format.strip().lower() or "mp3"
@@ -567,7 +568,7 @@ def preview_voice(
         payload = {"text": sample_text}
         if voice:
             payload["voice"] = voice
-        with httpx.Client(timeout=60) as client:
+        with get_client(timeout=60) as client:
             resp = client.post(endpoint, headers=headers, json=payload)
             resp.raise_for_status()
         return _extract_audio_bytes(resp), "mp3"
@@ -590,7 +591,7 @@ def preview_voice(
         }
         url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
         headers = {"Content-Type": "application/json"}
-        with httpx.Client(timeout=60) as client:
+        with get_client(timeout=60) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()

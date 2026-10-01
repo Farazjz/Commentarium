@@ -24,9 +24,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import httpx
-
 from app.config import get_settings
+from app.httpclient import post
 from app.models_openrouter import LLMClientError
 
 logger = logging.getLogger("app")
@@ -149,7 +148,7 @@ def _vl_via_endpoint(
         "max_tokens": 4000,
     }
     try:
-        resp = httpx.post(url, headers=headers, json=payload, timeout=120)
+        resp = post(url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         return (

@@ -121,8 +121,6 @@ def _session_or_none():
 
 def embed_texts_api(texts: list[str], *, model: str | None = None) -> list[list[float]]:
     """Embed via any OpenAI-compatible /embeddings endpoint."""
-    import httpx
-
     from app.models_openrouter import _client_embedding
 
     client = _client_embedding()
@@ -194,8 +192,6 @@ def _embed_cloudflare(texts: list[str]) -> list[list[float]]:
     """Embed via Cloudflare Workers AI embeddings REST endpoint."""
     import base64
 
-    import httpx
-
     cfg = get_settings()
     account = cfg.cf_account_id.strip()
     token = cfg.cf_api_token.strip()
@@ -208,7 +204,9 @@ def _embed_cloudflare(texts: list[str]) -> list[list[float]]:
     )
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     out: list[list[float]] = []
-    with httpx.Client(timeout=60) as client:
+    from app.httpclient import get_client
+
+    with get_client(timeout=60) as client:
         # Cloudflare's embeddings model takes a {"text": [...]} input (single call).
         try:
             resp = client.post(endpoint, headers=headers, json={"text": texts})

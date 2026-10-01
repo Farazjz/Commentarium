@@ -21,6 +21,18 @@ class LLMClientError(Exception):
     pass
 
 
+def _proxy_free_http_client():
+    """An httpx.Client that ignores the Windows registry proxy.
+
+    The openai SDK otherwise sends even localhost requests through the
+    registered system proxy, which breaks gateway calls (same root cause as
+    the embedding 400). See app/httpclient.py.
+    """
+    from app.httpclient import get_client
+
+    return get_client()
+
+
 def _client() -> OpenAI:
     cfg = get_settings()
     if not cfg.has_openrouter_key:
@@ -30,6 +42,7 @@ def _client() -> OpenAI:
     return OpenAI(
         api_key=cfg.openrouter_api_key,
         base_url=cfg.openrouter_base_url,
+        http_client=_proxy_free_http_client(),
     )
 
 
@@ -48,7 +61,7 @@ def _client_embedding() -> OpenAI:
             "No embedding API key configured. In Settings set an embedding "
             "API key (or a main OpenRouter key)."
         )
-    return OpenAI(api_key=key, base_url=base)
+    return OpenAI(api_key=key, base_url=base, http_client=_proxy_free_http_client())
 
 
 def test_connection(*, api_key: str | None = None, base_url: str | None = None) -> dict:
@@ -68,11 +81,13 @@ def test_connection(*, api_key: str | None = None, base_url: str | None = None) 
     try:
         # List models requires auth; a 401 means a bad key. This is the
         # lightest reliable auth check without spending tokens.
-        resp = httpx.get(
-            f"{url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=20,
-        )
+        from app.httpclient import get_client
+
+        with get_client(timeout=20) as client:
+            resp = client.get(
+                f"{url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
         if resp.status_code == 401:
             return {"ok": False, "error": "Invalid API key (401 Unauthorized)."}
         if resp.status_code != 200:
@@ -102,11 +117,13 @@ def fetch_models() -> list[dict]:
     Used to populate the Settings dropdowns. Returns [] on any failure.
     """
     try:
-        resp = httpx.get(
-            f"{get_settings().openrouter_base_url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {get_settings().openrouter_api_key}"},
-            timeout=30,
-        )
+        from app.httpclient import get_client
+
+        with get_client(timeout=30) as client:
+            resp = client.get(
+                f"{get_settings().openrouter_base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {get_settings().openrouter_api_key}"},
+            )
         resp.raise_for_status()
         data = resp.json().get("data", [])
         out = []
@@ -225,12 +242,14 @@ def test_embedding(
     if not model:
         return {"ok": False, "error": "No embedding model id entered."}
     try:
-        resp = httpx.post(
-            f"{url.rstrip('/')}/embeddings",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
-            json={"model": model, "input": "connection test"},
-            timeout=60,
-        )
+        from app.httpclient import get_client
+
+        with get_client(timeout=60) as client:
+            resp = client.post(
+                f"{url.rstrip('/')}/embeddings",
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+                json={"model": model, "input": "connection test"},
+            )
         if resp.status_code != 200:
             return {
                 "ok": False,
