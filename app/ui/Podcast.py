@@ -1,7 +1,7 @@
 """Podcast page – NotebookLM-style 'deep dive' audio of your papers.
 
-Pick documents (or a whole project), generate a two-host conversation script,
-and listen to an MP3 generated with edge-tts (free, no API key).
+Pick documents (or a whole project), preview each host's voice, then generate a
+multi-host conversation script and listen to audio from your chosen TTS provider.
 """
 from __future__ import annotations
 
@@ -104,27 +104,59 @@ else:
     )
     provider_override = "" if override_choice.startswith("(use") else override_choice
 
+    # ---- voice previews -----------------------------------------------
+    st.markdown("**🔊 Preview voices** — hear each host before you generate.")
+    prev_columns = st.columns(len(hosts))
+    from app.podcast.generate import preview_voice
+    for col, host in zip(prev_columns, hosts):
+        with col:
+            st.markdown(f"**{host.name}** ({host.gender})")
+            if prev_col := col.button(
+                f"▶ Preview {host.name}", key=f"prev_{host.index}",
+                use_container_width=True,
+            ):
+                try:
+                    audio_bytes, ext = preview_voice(
+                        provider=provider_override or None,
+                        voice=host.voice or None,
+                        name=host.name,
+                        gender=host.gender,
+                    )
+                    st.audio(audio_bytes, format=f"audio/{ext}", key=f"prev_audio_{host.index}")
+                except Exception as exc:  # noqa: BLE001
+                    st.caption(f"⚠️ {exc}")
+
 if gen:
     if not picked:
         st.error("Pick at least one document first.")
     else:
         from app.podcast.generate import generate_podcast
 
-        with st.spinner("Writing the episode script + audio… this takes a minute"):
-            try:
-                pod = generate_podcast(
-                    project_id=sel_id,
-                    document_ids=picked,
-                    title=title.strip() or "Untitled deep dive",
-                    provider=provider_override or None,
-                )
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Generation failed: {exc}")
-                pod = None
+        progress_bar = st.progress(0.0, text="Starting…")
+        status_text = st.empty()
+
+        def _on_progress(done, total, action, message):
+            pct = min(100, max(0, int(100 * done / max(total, 1)))) / 100
+            progress_bar.progress(pct, text=message or action)
+
+        try:
+            pod = generate_podcast(
+                project_id=sel_id,
+                document_ids=picked,
+                title=title.strip() or "Untitled deep dive",
+                provider=provider_override or None,
+                progress=_on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            progress_bar.empty()
+            st.error(f"Generation failed: {exc}")
+            pod = None
         if pod:
             if pod.get("status") == "error":
+                progress_bar.empty()
                 st.error(f"Generation failed: {pod.get('error')}")
             else:
+                progress_bar.progress(1.0, text="Done ✅")
                 st.success("Podcast ready!")
                 st.rerun()
 

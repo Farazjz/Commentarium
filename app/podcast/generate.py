@@ -173,7 +173,7 @@ def _voice_map(hosts: list[Host]) -> dict[int, str]:
     return {h.index: (h.voice or "") for h in hosts}
 
 
-def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg):
+def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=None):
     """OpenAI-compatible /v1/audio/speech endpoint (your local server)."""
     url = cfg.tts_api_url.strip()
     if not url:
@@ -214,8 +214,9 @@ def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg):
                 )
 
     media = b""
+    total = len(script_lines) or 1
     with httpx.Client(timeout=120) as client:
-        for line in script_lines:
+        for idx, line in enumerate(script_lines, start=1):
             voice = voices.get(line.host_index) or voices.get(1) or "tts-1"
             payload = {"model": model, "input": line.text, "voice": voice, "format": fmt}
             try:
@@ -224,12 +225,12 @@ def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg):
                 media += resp.content
             except Exception as exc:  # noqa: BLE001
                 _log_line_error("localhost TTS", voice, exc)
-                continue
+            _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({voice})")
 
     return _finalize(media, out_path, ext="mp3" if fmt == "mp3" else "mp3", provider="localhost")
 
 
-def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg):
+def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=None):
     """Cloudflare Workers AI text-to-speech."""
     account = cfg.cf_account_id.strip()
     token = cfg.cf_api_token.strip()
@@ -248,8 +249,9 @@ def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg):
     voices = _voice_map(hosts)
 
     media = b""
+    total = len(script_lines) or 1
     with httpx.Client(timeout=120) as client:
-        for line in script_lines:
+        for idx, line in enumerate(script_lines, start=1):
             voice = voices.get(line.host_index) or ""
             payload = {"text": line.text}
             if voice:
@@ -260,12 +262,12 @@ def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg):
                 media += _extract_audio_bytes(resp)
             except Exception as exc:  # noqa: BLE001
                 _log_line_error("Cloudflare TTS", voice or model, exc)
-                continue
+            _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({voice or model})")
 
     return _finalize(media, out_path, ext="mp3", provider="cloudflare")
 
 
-def _synthesize_google_tts(script_lines, out_path, hosts, cfg):
+def _synthesize_google_tts(script_lines, out_path, hosts, cfg, progress=None):
     """Google Cloud Text-to-Speech (v1 text:synthesize)."""
     api_key = cfg.google_api_key.strip()
     lang = cfg.google_language_code.strip() or "en-US"
@@ -278,8 +280,9 @@ def _synthesize_google_tts(script_lines, out_path, hosts, cfg):
     headers = {"Content-Type": "application/json"}
 
     media = b""
+    total = len(script_lines) or 1
     with httpx.Client(timeout=120) as client:
-        for line in script_lines:
+        for idx, line in enumerate(script_lines, start=1):
             host = next((h for h in hosts if h.index == line.host_index), hosts[0] if hosts else None)
             if host is None:
                 continue
@@ -303,12 +306,12 @@ def _synthesize_google_tts(script_lines, out_path, hosts, cfg):
                     media += base64.b64decode(audio_b64)
             except Exception as exc:  # noqa: BLE001
                 _log_line_error("Google TTS", host.voice or lang, exc)
-                continue
+            _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({host.name})")
 
     return _finalize(media, out_path, ext="mp3", provider="google")
 
 
-def _synthesize_edge_tts(script_lines, out_path, hosts, cfg):
+def _synthesize_edge_tts(script_lines, out_path, hosts, cfg, progress=None):
     """Microsoft edge-tts (free, needs internet)."""
     import asyncio
     import edge_tts
@@ -316,7 +319,8 @@ def _synthesize_edge_tts(script_lines, out_path, hosts, cfg):
     voices = _voice_map(hosts)
 
     media = b""
-    for line in script_lines:
+    total = len(script_lines) or 1
+    for idx, line in enumerate(script_lines, start=1):
         voice = voices.get(line.host_index) or voices.get(1)
         if not voice:
             continue
@@ -333,7 +337,7 @@ def _synthesize_edge_tts(script_lines, out_path, hosts, cfg):
             media += asyncio.run(_gather())
         except Exception as exc:  # noqa: BLE001
             logger.warning("edge-tts failed on a line (%s): %s", voice, exc)
-            continue
+        _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({voice})")
 
     return _finalize(media, out_path, ext="mp3", provider="edge-tts")
 
@@ -357,6 +361,16 @@ def _extract_audio_bytes(resp: httpx.Response) -> bytes:
             return base64.b64decode(b64)
         return b""
     return resp.content
+
+
+def _notify_progress(progress, done: int, total: int, action: str, message: str = "") -> None:
+    """Call an optional progress callback with (done, total, action, message)."""
+    if progress is None:
+        return
+    try:
+        progress(done, total, action, message)
+    except Exception:  # noqa: BLE001
+        logger.debug("progress callback raised, ignoring")
 
 
 def _log_line_error(provider: str, voice: str, exc: Exception) -> None:
@@ -393,10 +407,12 @@ def _synthesize_audio(
     out_path: Path,
     hosts: list[Host],
     provider: str | None = None,
+    progress=None,
 ) -> tuple[float, Path]:
     """Dispatch to the configured TTS provider.
 
     `provider` overrides cfg.tts_provider when given (for per-episode picks).
+    `progress` is an optional callback(done, total, action, message).
     Returns (approximate duration in seconds, path of written audio file).
     Raises PodcastError on failure.
     """
@@ -405,11 +421,11 @@ def _synthesize_audio(
     if provider == "disabled":
         raise PodcastError("TTS is disabled (transcript-only mode).")
     if provider == "localhost":
-        return _synthesize_localhost_tts(script_lines, out_path, hosts, cfg)
+        return _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "cloudflare":
-        return _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg)
+        return _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "google":
-        return _synthesize_google_tts(script_lines, out_path, hosts, cfg)
+        return _synthesize_google_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "edge-tts":
         try:
             import edge_tts  # noqa: F401
@@ -418,7 +434,7 @@ def _synthesize_audio(
                 "edge-tts is not installed. Install it with `pip install edge-tts`, "
                 "or pick another TTS provider in Settings."
             ) from exc
-        return _synthesize_edge_tts(script_lines, out_path, hosts, cfg)
+        return _synthesize_edge_tts(script_lines, out_path, hosts, cfg, progress=progress)
     raise PodcastError(f"Unknown TTS provider '{provider}'.")
 
 
@@ -429,10 +445,14 @@ def generate_podcast(
     title: str,
     model: str | None = None,
     provider: str | None = None,
+    progress=None,
 ) -> dict:
     """Generate a podcast for the given documents and persist it.
 
     `provider` optionally overrides the configured TTS provider for this episode.
+    `progress` is an optional callback(done, total, action, message) invoked as
+    generation moves through its stages (summarize -> script -> synthesize) and
+    per synthesized line, so a UI can show a live progress bar.
     Returns the podcast row dict (status 'ready' or 'error').
     """
     cfg = get_settings()
@@ -448,7 +468,9 @@ def generate_podcast(
         meta.update_podcast(pod_id, status="generating", tts_provider=use_provider)
 
         try:
+            _notify_progress(progress, 0, 100, "summarize", "Summarizing selected documents…")
             context = _gather_context(document_ids, meta)
+            _notify_progress(progress, 20, 100, "script", "Writing the episode script…")
             script = _generate_script(title or "Untitled deep dive", context, hosts, model=model)
             meta.update_podcast(pod_id, script=script)
 
@@ -456,12 +478,19 @@ def generate_podcast(
             audio_path = ""
             duration = 0.0
             if lines:
+                def _tts_progress(done, total, action, message):
+                    # scale the per-line synthesis (0..100) into the 20..100 band
+                    frac = done / max(total, 1)
+                    _notify_progress(progress, 20 + int(frac * 80), 100, action, message)
                 try:
                     out = cfg.podcast_dir / f"{pod_id}.audio"
-                    duration, audio_path = _synthesize_audio(lines, out, hosts, provider=use_provider)
+                    duration, audio_path = _synthesize_audio(
+                        lines, out, hosts, provider=use_provider, progress=_tts_progress,
+                    )
                     audio_path = str(audio_path)
                 except PodcastError as exc:
                     logger.warning("Podcast audio skipped: %s", exc)
+            _notify_progress(progress, 100, 100, "done", "Done.")
             meta.update_podcast(
                 pod_id, status="ready", audio_path=audio_path, duration_sec=duration,
             )
@@ -471,3 +500,122 @@ def generate_podcast(
         return meta.get_podcast(pod_id)
     finally:
         meta.close()
+
+
+def preview_voice(
+    *,
+    provider: str | None = None,
+    voice: str | None = None,
+    name: str | None = None,
+    gender: str | None = None,
+    text: str | None = None,
+) -> tuple[bytes, str]:
+    """Synthesize a short sample ("preview") with a single host's voice.
+
+    `provider` defaults to the configured TTS provider; `voice`/`gender`/`name`
+    fall back to the configured host(s) so a quick preview works with no args.
+    Returns (audio_bytes, file_extension_without_dot).
+    Raises PodcastError on failure.
+    """
+    cfg = get_settings()
+    provider = (provider or cfg.tts_provider or "edge-tts").strip().lower()
+    hosts = get_hosts(cfg)
+
+    # resolve a voice + gender for the preview
+    if not voice:
+        for h in hosts:
+            if h.voice:
+                voice = h.voice
+                gender = gender or h.gender
+                name = name or h.name
+                break
+    gender = (gender or "").strip().lower()
+
+    sample_text = (text or "").strip() or (
+        f"Hi there! I'm {name or 'your host'}, and this is how I'll sound "
+        "on your deep dive podcast."
+    )
+
+    if provider == "localhost":
+        if not voice:
+            raise PodcastError("No voice configured to preview. Set host voices in Settings → Podcast.")
+        payload = {
+            "model": cfg.tts_api_model.strip() or "tts-1",
+            "input": sample_text,
+            "voice": voice,
+            "format": cfg.tts_api_format.strip().lower() or "mp3",
+        }
+        url = cfg.tts_api_url.strip() or "http://localhost:20128/v1/audio/speech"
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = "http://" + url
+        headers = {"Content-Type": "application/json"}
+        if cfg.tts_api_key.strip():
+            headers["Authorization"] = f"Bearer {cfg.tts_api_key.strip()}"
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+        return resp.content, cfg.tts_api_format.strip().lower() or "mp3"
+
+    if provider == "cloudflare":
+        account = cfg.cf_account_id.strip()
+        token = cfg.cf_api_token.strip()
+        model = cfg.cf_model.strip() or "@cf/microsoft/windows-captioning-or-tts"
+        if not account or not token:
+            raise PodcastError("Cloudflare TTS needs an Account ID and API Token (Settings → Podcast).")
+        endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        payload = {"text": sample_text}
+        if voice:
+            payload["voice"] = voice
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(endpoint, headers=headers, json=payload)
+            resp.raise_for_status()
+        return _extract_audio_bytes(resp), "mp3"
+
+    if provider == "google":
+        api_key = cfg.google_api_key.strip()
+        lang = cfg.google_language_code.strip() or "en-US"
+        if not api_key:
+            raise PodcastError("Google TTS needs an API key (Settings → Podcast).")
+        ssml = {"female": "FEMALE", "male": "MALE", "neutral": "NEUTRAL"}
+        voice_spec = {"languageCode": lang}
+        if voice:
+            voice_spec["name"] = voice
+        else:
+            voice_spec["ssmlGender"] = ssml.get(gender, "NEUTRAL")
+        payload = {
+            "input": {"text": sample_text},
+            "voice": voice_spec,
+            "audioConfig": {"audioEncoding": "MP3"},
+        }
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        b64 = data.get("audioContent") or ""
+        if not b64:
+            raise PodcastError("Google TTS returned no audio for the preview.")
+        return base64.b64decode(b64), "mp3"
+
+    if provider == "edge-tts":
+        import asyncio
+        import edge_tts
+        if not voice:
+            raise PodcastError("No voice configured to preview. Set host voices in Settings → Podcast.")
+        communicate = edge_tts.Communicate(sample_text, voice)
+
+        async def _gather():
+            chunks = b""
+            async for ch in communicate.stream():
+                if ch["type"] == "audio":
+                    chunks += ch["data"]
+            return chunks
+
+        return asyncio.run(_gather()), "mp3"
+
+    if provider == "disabled":
+        raise PodcastError("TTS is disabled. Pick a provider in Settings → Podcast to preview voices.")
+
+    raise PodcastError(f"Unknown TTS provider '{provider}'.")
