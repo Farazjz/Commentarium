@@ -101,6 +101,9 @@ async def settings_summary():
         "teleocr_model": cfg.teleocr_model,
         "teleocr_base_url": cfg.teleocr_base_url,
         "tts_backend": cfg.tts_backend,
+        "tts_api_url": cfg.tts_api_url,
+        "tts_api_model": cfg.tts_api_model,
+        "tts_api_format": cfg.tts_api_format,
     }
 
 

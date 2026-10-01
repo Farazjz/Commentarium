@@ -246,14 +246,54 @@ citation_style = st.selectbox(
 )
 
 st.caption("**Podcast audio (NotebookLM-style)**")
+_tts_choices = ["edge-tts", "api", "disabled"]
 tts_backend = st.selectbox(
     "Text-to-speech backend",
-    ["edge-tts", "disabled"],
-    index=0 if cfg.tts_backend == "edge-tts" else 1,
-    help="edge-tts = free MP3 (requires `pip install edge-tts` + internet). disabled = transcript only.",
+    _tts_choices,
+    index=_tts_choices.index(cfg.tts_backend) if cfg.tts_backend in _tts_choices else 0,
+    help=(
+        "edge-tts = free MP3 (requires `pip install edge-tts` + internet). "
+        "api = your own OpenAI-compatible /v1/audio/speech server (local & private). "
+        "disabled = transcript only."
+    ),
 )
-host_a_voice = st.text_input("Host A voice", value=cfg.podcast_host_a_voice, help="edge-tts voice name.")
-host_b_voice = st.text_input("Host B voice", value=cfg.podcast_host_b_voice, help="edge-tts voice name.")
+
+if tts_backend == "api":
+    st.caption("**Your TTS server** (any OpenAI-compatible `/v1/audio/speech` endpoint, e.g. Kokoro, Silero, Piper, vLLM…)")
+    api_url = st.text_input(
+        "TTS API URL",
+        value=cfg.tts_api_url or "http://localhost:20128/v1/audio/speech",
+        help="Full URL of the speech endpoint, including /v1/audio/speech.",
+    )
+    c_api1, c_api2 = st.columns(2)
+    api_model = c_api1.text_input(
+        "TTS model id", value=cfg.tts_api_model or "tts-1",
+        help="The model your server expects (e.g. 'tts-1', 'kokoro', 'silero').",
+    )
+    api_format = c_api2.selectbox(
+        "Output format", ["mp3", "wav", "opus", "aac", "flac"],
+        index=["mp3", "wav", "opus", "aac", "flac"].index(cfg.tts_api_format)
+        if cfg.tts_api_format in ["mp3", "wav", "opus", "aac", "flac"] else 0,
+        help="Format your server returns. mp3 recommended.",
+    )
+    api_key = st.text_input(
+        "TTS API key (optional)", value=cfg.tts_api_key, type="password",
+        help="Only if your TTS server requires an API key.",
+    )
+else:
+    api_url = cfg.tts_api_url
+    api_model = cfg.tts_api_model
+    api_format = cfg.tts_api_format
+    api_key = cfg.tts_api_key
+
+host_a_voice = st.text_input(
+    "Host A voice", value=cfg.podcast_host_a_voice,
+    help="Host A's voice id (a model/voice your TTS backend knows).",
+)
+host_b_voice = st.text_input(
+    "Host B voice", value=cfg.podcast_host_b_voice,
+    help="Host B's voice id. Pick a different one so the two hosts are distinct.",
+)
 
 col_save_tune = st.button("💾 Save OCR & tuning", use_container_width=True)
 if col_save_tune:
@@ -269,6 +309,10 @@ if col_save_tune:
             "TELEOCR_MODEL": teleocr_model.strip(),
             "TELEOCR_BASE_URL": teleocr_url.strip(),
             "TTS_BACKEND": tts_backend,
+            "TTS_API_URL": api_url.strip(),
+            "TTS_API_MODEL": api_model.strip(),
+            "TTS_API_FORMAT": api_format,
+            "TTS_API_KEY": api_key.strip(),
             "PODCAST_HOST_A_VOICE": host_a_voice.strip(),
             "PODCAST_HOST_B_VOICE": host_b_voice.strip(),
         }

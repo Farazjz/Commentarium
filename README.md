@@ -28,8 +28,10 @@ entirely on your machine, using your own **OpenRouter** API key.
 - 🧠 **Multi-kind per-document summaries** — Brief, Detailed, Key points, TL;DR,
   and a study **Quiz**, all cached so they don't burn tokens twice
 - 🎙️ **Podcast studio (NotebookLM-style)** — select papers, and the app writes a
-  two-host "deep dive" conversation and reads it aloud as an MP3 (edge-tts, free;
-  transcript-only fallback if TTS is unavailable)
+  two-host "deep dive" conversation and reads it aloud as an MP3. Choose the TTS:
+  **edge-tts** (free, no key) or **any OpenAI-compatible `/v1/audio/speech`
+  server** (Kokoro / Silero / Piper / vLLM — fully local & private), with
+  per-host voice ids and model/format controls (transcript-only fallback)
 - 🛡️ **Embedding-dim guard** — prevents silent corruption if you change
   embedding models; Projects page shows corpus-model identity and warns on mismatch
 - 🪵 **Log viewer** — live, filterable logs (file + console + in-app) for debugging
@@ -209,9 +211,14 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
   then Re-index the document. For state-of-the-art document parsing, choose
   `paddleocr-vl` or `teleocr` and point them at a local VLM server (or let them
   fall back to the gateway's vision model).
-- **Podcast audio** requires `pip install edge-tts` (listed in `requirements.txt`)
-  and internet access. If it's missing, the podcast is still generated and saved
-  as a transcript — switch `TTS_BACKEND=disabled` to suppress the audio attempt.
+- **Podcast audio** options (Settings → OCR & RAG tuning → Podcast audio):
+  - **edge-tts** requires `pip install edge-tts` (in `requirements.txt`) + internet.
+  - **api** uses any OpenAI-compatible `/v1/audio/speech` endpoint — fully local &
+    private (e.g. Kokoro, Silero, Piper, vLLM). Set the URL, model id, and the two
+    **voice ids** your server knows (some servers expose `/v1/audio/voices`; the
+    app validates yours against it). A different voice per host makes them distinct.
+  - If TTS fails or is disabled, the podcast is still generated and saved as a
+    transcript.
 - All logs are stored in `data/logs/app.log` (rotating). Every UI page shows
   recent errors in a collapsible panel for quick debugging.
 - Check `.env.example` for every available setting.

@@ -62,8 +62,16 @@ class Settings(BaseSettings):
     chat_temperature: float = 0.2
 
     # --- Podcast (NotebookLM-style deep dives) ---
-    # TTS: "edge-tts" (free, no key, needs internet) | "disabled" (transcript only)
+    # TTS backend:
+    #   "edge-tts" -> free MP3 via Microsoft Edge TTS (needs internet)
+    #   "api"      -> any OpenAI-compatible /v1/audio/speech endpoint (e.g. a
+    #                 local TTS server such as Kokoro / Silero / Piper / vLLM)
+    #   "disabled" -> transcript only (no audio)
     tts_backend: str = "edge-tts"
+    tts_api_url: str = "http://localhost:20128/v1/audio/speech"
+    tts_api_key: str = ""
+    tts_api_model: str = ""          # e.g. "tts-1", "kokoro", "silero" ... (default "tts-1")
+    tts_api_format: str = "mp3"      # "mp3" | "wav" | "opus" | "aac" | "flac"
     podcast_host_a_voice: str = "en-US-ChristopherNeural"
     podcast_host_b_voice: str = "en-US-JennyNeural"
 

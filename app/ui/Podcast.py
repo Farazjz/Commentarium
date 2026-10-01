@@ -81,6 +81,10 @@ if col_m.button("↻ Refresh list", use_container_width=True):
 cfg = get_settings()
 if cfg.tts_backend == "disabled":
     st.caption("ℹ️ TTS is **disabled** (Settings). Generating will save a transcript only.")
+elif cfg.tts_backend == "api":
+    st.caption(f"🔊 TTS backend: **API server** → `{cfg.tts_api_url or '(not set)'}`. Host A `{cfg.podcast_host_a_voice}` / Host B `{cfg.podcast_host_b_voice}`.")
+else:
+    st.caption("🔊 TTS backend: **edge-tts** (free MP3, needs internet).")
 
 if gen:
     if not picked:
