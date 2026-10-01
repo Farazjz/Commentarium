@@ -384,10 +384,9 @@ async def index_stats():
     meta = MetadataStore()
     cfg = get_settings()
     try:
-        current_model = (
-            cfg.embedding_model if cfg.embedding_backend == "openrouter"
-            else cfg.local_embedding_model
-        )
+        from app.ingest.embeddings import current_embedding_label
+
+        current_model = current_embedding_label()
         stored_model = vs.get_meta("embedding_model")
         matched = (
             stored_model is None

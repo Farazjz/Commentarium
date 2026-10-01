@@ -12,7 +12,7 @@ import streamlit as st
 from app.config import PROJECT_ROOT, get_settings
 from app.models_openrouter import fetch_models, test_connection, test_embedding
 from app.podcast.hosts import GENDERS, PROVIDERS, PROVIDER_LABELS, get_hosts
-from app.ui.helpers import banner
+from app.ui.helpers import banner, browse_folder_dialog, render_last_errors
 
 logger = logging.getLogger("app")
 
@@ -139,28 +139,53 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Embedding backend + model
 # ---------------------------------------------------------------------------
+_EMB_CHOICES = ["local", "api", "cloudflare"]
 embedding_backend = st.radio(
     "Embedding backend",
-    ["local", "openrouter"],
-    index=0 if cfg.embedding_backend == "local" else 1,
+    _EMB_CHOICES,
+    index=_EMB_CHOICES.index(cfg.embedding_backend) if cfg.embedding_backend in _EMB_CHOICES else 0,
     horizontal=True,
-    help="local = free & private (sentence-transformers). openrouter = uses EMBEDDING_MODEL.",
+    format_func=lambda k: {
+        "local": "🌐 Local (offline, sentence-transformers)",
+        "api": "🔌 API (OpenAI-compatible / embeddings)",
+        "cloudflare": "☁️ Cloudflare Workers AI",
+    }.get(k, k),
+    help=(
+        "local = free & private (sentence-transformers; optional local model folder). "
+        "api = any OpenAI-compatible embeddings endpoint (OpenRouter, Google Gemini, "
+        "OpenAI, LM Studio…) with a custom base URL + key + model. "
+        "cloudflare = Cloudflare Workers AI embeddings."
+    ),
 )
 
 embedding_model = None
-if embedding_backend == "openrouter":
+if embedding_backend in ("api", "openrouter"):
     st.caption(
-        "9Router serves embeddings via a separate provider, so the id must be "
-        "provider-prefixed (e.g. `openrouter/openai/text-embedding-3-large`). "
-        "Enter it below, then click **Test embedding**."
+        "Point at any OpenAI-compatible `/embeddings` endpoint. Provide a base "
+        "URL + API key + model id (e.g. OpenRouter "
+        "`openrouter/openai/text-embedding-3-large`, Google "
+        "`text-embedding-004`, or a local proxy's model)."
     )
-    # Manual field pre-filled with whatever is saved (or the known-working id).
+    col_eb1, col_eb2 = st.columns(2)
+    emb_api_base = col_eb1.text_input(
+        "Embedding API base URL",
+        value=cfg.embedding_api_base_url or cfg.openrouter_base_url,
+        key="emb_api_base",
+        help="Full base URL, e.g. https://openrouter.ai/api/v1 or https://generativelanguage.googleapis.com/v1beta/openai. Leave blank to reuse the OpenRouter gateway.",
+    )
+    emb_api_key = col_eb2.text_input(
+        "Embedding API key",
+        value=cfg.embedding_api_key or cfg.openrouter_api_key,
+        type="password",
+        key="emb_api_key",
+        help="Leave blank to reuse the OpenRouter key.",
+    )
     manual_embed = st.text_input(
         "Embedding model ID",
-        value=cfg.embedding_model or "openrouter/openai/text-embedding-3-large",
+        value=cfg.embedding_model or "",
         placeholder="openrouter/openai/text-embedding-3-large",
         key="embed_model_manual",
-        help="The exact model id your 9Router embedding provider serves (provider-prefixed).",
+        help="The exact model id your embeddings endpoint serves.",
     )
     embedding_model = manual_embed
 
@@ -168,16 +193,62 @@ if embedding_backend == "openrouter":
     if col_embed_test.button("🧪 Test embedding", use_container_width=True):
         with st.spinner("Testing embedding…"):
             res = test_embedding(
-                api_key=api_key if isinstance(api_key, str) and api_key else None,
-                base_url=base_url if isinstance(base_url, str) and base_url else None,
+                api_key=emb_api_key or None,
+                base_url=emb_api_base or None,
                 model=manual_embed.strip() or None,
             )
         if res.get("ok"):
             st.success(f"Embedding OK — {res['dimensions']} dimensions (model `{res['model']}`).")
         else:
             st.error(f"Embedding failed: {res.get('error')}")
-else:
-    st.caption(f"Using local model: `{cfg.local_embedding_model}`")
+
+elif embedding_backend == "cloudflare":
+    st.caption(
+        "Uses your Cloudflare **Account ID** + **API Token** (from the podcast "
+        "TTS settings) with a Workers AI embeddings model."
+    )
+    c_em = st.selectbox(
+        "Cloudflare embedding model",
+        ["@cf/baai/bge-base-en-v1.5", "@cf/baai/bge-small-en-v1.5", "@cf/baai/bge-large-en-v1.5"],
+        index=["@cf/baai/bge-base-en-v1.5", "@cf/baai/bge-small-en-v1.5", "@cf/baai/bge-large-en-v1.5"].index(
+            cfg.cloudflare_embedding_model
+        ) if cfg.cloudflare_embedding_model in ["@cf/baai/bge-base-en-v1.5", "@cf/baai/bge-small-en-v1.5", "@cf/baai/bge-large-en-v1.5"] else 0,
+        key="cf_emb_model",
+    )
+    st.caption(f"Account ID: `{cfg.cf_account_id or '(not set — set in podcast TTS settings)'}`")
+
+else:  # local
+    st.caption(
+        "Free & fully private. Uses sentence-transformers. You can point to a "
+        "**local model folder** (browse below) for 100%-offline use, or type a "
+        "HuggingFace model id that gets downloaded once."
+    )
+    local_model_id = st.text_input(
+        "Local model (HuggingFace id or path)",
+        value=cfg.local_embedding_model,
+        key="emb_local_model",
+        help="A model id like BAAI/bge-small-en-v1.5, or a filesystem path to a saved model folder.",
+    )
+    local_model_path = st.text_input(
+        "Local model folder (offline)",
+        value=cfg.local_embedding_path,
+        key="emb_local_path",
+        placeholder="C:\\models\\bge-small-en-v1.5",
+        help="Optional. Browse to a folder containing a downloaded model (config.json + model.safetensors) so nothing is fetched from the network.",
+    )
+    if st.button("📂 Browse for model folder…", key="browse_emb_path"):
+        picked = browse_folder_dialog("Select local embedding model folder (with config.json)")
+        if picked:
+            st.session_state["emb_local_path"] = picked
+            st.success(f"Selected: {picked}")
+        else:
+            st.info("No folder selected.")
+    hf_offline = st.checkbox(
+        "Offline mode (never download, use cache only)",
+        value=cfg.hf_offline,
+        key="emb_hf_offline",
+        help="Fix 'cannot connect to huggingface.co': load only from local cache / model folder.",
+    )
 
 col_save_models = st.button("💾 Save models", use_container_width=True)
 if col_save_models:
@@ -186,8 +257,17 @@ if col_save_models:
         "EMBEDDING_BACKEND": embedding_backend,
         "CHAT_TEMPERATURE": str(chat_temperature),
     }
-    if embedding_backend == "openrouter" and embedding_model:
-        updates["EMBEDDING_MODEL"] = embedding_model.strip()
+    if embedding_backend in ("api", "openrouter"):
+        if embedding_model:
+            updates["EMBEDDING_MODEL"] = embedding_model.strip()
+        updates["EMBEDDING_API_BASE_URL"] = emb_api_base.strip()
+        updates["EMBEDDING_API_KEY"] = emb_api_key.strip()
+    elif embedding_backend == "cloudflare":
+        updates["CLOUDFLARE_EMBEDDING_MODEL"] = c_em.strip()
+    else:  # local
+        updates["LOCAL_EMBEDDING_MODEL"] = local_model_id.strip()
+        updates["LOCAL_EMBEDDING_PATH"] = local_model_path.strip()
+        updates["HF_OFFLINE"] = "1" if hf_offline else "0"
     _apply(updates)
     st.success("Models saved.")
 

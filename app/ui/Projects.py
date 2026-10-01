@@ -151,33 +151,36 @@ def _render_project_cards() -> None:
                     st.rerun()
 
             st.divider()
-            # ---- Upload documents into this project
+            # ---- Upload documents into this project (multi-file)
             with st.container(border=True):
                 uploaded = st.file_uploader(
-                    f"Upload papers to **{p['name']}** (PDF / DOCX)",
-                    type=["pdf", "docx", "doc"],
+                    f"Upload papers to **{p['name']}** (PDF / DOCX / TXT / MD…)",
+                    type=["pdf", "docx", "doc", "txt", "md", "markdown"],
+                    accept_multiple_files=True,
                     key=f"upload_{p['id']}",
                 )
                 up_submit = st.button(
                     "⬆ Upload & index", key=f"up_btn_{p['id']}",
-                    use_container_width=True, disabled=not uploaded,
+                    use_container_width=True,
+                    disabled=not (uploaded and len(uploaded) > 0),
                 )
                 if up_submit and uploaded:
-                    try:
-                        data = uploaded.getvalue()
-                        if len(data) == 0:
-                            st.error("Uploaded file is empty.")
-                        else:
-                            with st.spinner(f"Ingesting {uploaded.name}…"):
-                                doc = store_upload(p["id"], data, uploaded.name)
+                    for uf in uploaded:
+                        try:
+                            data = uf.getvalue()
+                            if len(data) == 0:
+                                st.error(f"**{uf.name}** is empty — skipped.")
+                                continue
+                            with st.spinner(f"Ingesting {uf.name}…"):
+                                doc = store_upload(p["id"], data, uf.name)
                                 s = ingest_document(doc["id"])
                             st.success(
-                                f"Uploaded **{uploaded.name}** → "
+                                f"Uploaded **{uf.name}** → "
                                 f"{s['chunks']} chunks / {s['pages']} pages."
                             )
-                            st.rerun()
-                    except Exception as exc:  # noqa: BLE001
-                        st.error(f"Upload/ingest failed: {exc}")
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(f"**{uf.name}** upload/ingest failed: {exc}")
+                    st.rerun()
 
             # documents in this project
             docs = _documents(p["id"])

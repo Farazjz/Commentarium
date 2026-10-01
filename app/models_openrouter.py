@@ -33,6 +33,24 @@ def _client() -> OpenAI:
     )
 
 
+def _client_embedding() -> OpenAI:
+    """OpenAI client pointed at the embedding API endpoint.
+
+    Uses EMBEDDING_API_BASE_URL / EMBEDDING_API_KEY when set (any OpenAI-
+    compatible embeddings provider), otherwise falls back to the main
+    OpenRouter gateway settings.
+    """
+    from app.ingest.embeddings import embedding_api_config
+
+    base, key, _ = embedding_api_config()
+    if not key:
+        raise LLMClientError(
+            "No embedding API key configured. In Settings set an embedding "
+            "API key (or a main OpenRouter key)."
+        )
+    return OpenAI(api_key=key, base_url=base)
+
+
 def test_connection(*, api_key: str | None = None, base_url: str | None = None) -> dict:
     """Verify connectivity and that the API key is valid.
 
@@ -197,10 +215,13 @@ def test_embedding(
     model: str | None = None,
 ) -> dict:
     """Test that the embedding endpoint responds with a vector for a model."""
+    from app.ingest.embeddings import embedding_api_config
+
     cfg = get_settings()
-    key = (api_key or "").strip() or cfg.openrouter_api_key
-    url = (base_url or "").strip() or cfg.openrouter_base_url
-    model = (model or "").strip() or cfg.embedding_model
+    default_base, default_key, default_model = embedding_api_config()
+    key = (api_key or "").strip() or default_key or cfg.openrouter_api_key
+    url = (base_url or "").strip() or default_base or cfg.openrouter_base_url
+    model = (model or "").strip() or cfg.embedding_model or default_model
     if not model:
         return {"ok": False, "error": "No embedding model id entered."}
     try:

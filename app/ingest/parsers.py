@@ -104,7 +104,7 @@ def parse_docx(path: str | Path) -> list[dict]:
 def parse_file(path: str | Path) -> tuple[list[dict], str]:
     """Parse a file into per-page text. Returns (pages, file_type).
 
-    file_type is "pdf" or "docx".
+    file_type is "pdf", "docx" or "txt".
     """
     path = Path(path)
     suffix = path.suffix.lower()
@@ -112,4 +112,26 @@ def parse_file(path: str | Path) -> tuple[list[dict], str]:
         return parse_pdf(path), "pdf"
     if suffix in (".docx", ".doc"):
         return parse_docx(path), "docx"
-    raise ParseError(f"Unsupported file type: {suffix or '(none)'}. Use PDF or DOCX.")
+    if suffix in (".txt", ".md", ".markdown", ".text"):
+        return parse_plain_text(path), "txt"
+    raise ParseError(f"Unsupported file type: {suffix or '(none)'}. Use PDF, DOCX, TXT or Markdown.")
+
+
+def parse_plain_text(path: str | Path) -> list[dict]:
+    """Read a plain-text / Markdown file, splitting into pages by blank lines.
+
+    Keeps the text intact (no markdown stripping) so your notes stay readable.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        raise ParseError(f"Could not read text file {path.name}: {exc}") from exc
+    raw = raw.strip()
+    if not raw:
+        raise ParseError(f"No text extracted from {path.name}")
+    # Split into logical "pages" on two+ blank lines for better chunk mapping.
+    import re
+
+    parts = [p.strip() for p in re.split(r"\n\s*\n\s*\n+", raw) if p.strip()]
+    return [{"page": i, "text": part} for i, part in enumerate(parts)]

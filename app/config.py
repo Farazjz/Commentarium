@@ -31,9 +31,30 @@ class Settings(BaseSettings):
     chat_model: str = ""
     embedding_model: str = ""
 
-    # --- Embedding backend: "local" | "openrouter" ---
+    # --- Embedding backend: "local" | "api" (OpenAI-compatible) | "cloudflare" ---
+    #   "local"      -> sentence-transformers, fully offline (see local_embedding_*)
+    #   "api"        -> any OpenAI-compatible /embeddings endpoint (OpenRouter,
+    #                   Google Gemini, OpenAI, a local proxy…) using
+    #                   embedding_api_base_url / embedding_api_key / EMBEDDING_MODEL.
+    #                   Empty base/key fall back to the OpenRouter gateway settings.
+    #   "cloudflare" -> Cloudflare Workers AI embeddings (cf_account_id + cf_api_token)
     embedding_backend: str = "local"
     local_embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Point at a local SentenceTransformer model directory for fully-offline use
+    # (e.g. a folder with config.json + model.safetensors). Empty = use the model
+    # id above (downloads once from HuggingFace on first use).
+    local_embedding_path: str = ""
+    # Force offline HuggingFace loading (use the local cache, never hit the network).
+    hf_offline: bool = False
+
+    # OpenAI-compatible embedding endpoint (embedding_backend="api").
+    # Leave empty to fall back to OPENROUTER_BASE_URL / OPENROUTER_API_KEY.
+    embedding_api_base_url: str = ""
+    embedding_api_key: str = ""
+
+    # Cloudflare Workers AI embedding (embedding_backend="cloudflare").
+    # Reuses CF_ACCOUNT_ID / CF_API_TOKEN from the podcast settings.
+    cloudflare_embedding_model: str = "@cf/baai/bge-base-en-v1.5"
 
     # --- OCR backend: "tesseract" | "vision" | "paddleocr-vl" | "teleocr" | "disabled" ---
     ocr_backend: str = "tesseract"

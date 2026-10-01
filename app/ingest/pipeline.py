@@ -145,8 +145,8 @@ def store_upload(project_id: str, upload_bytes: bytes, filename: str) -> dict:
     try:
         name = Path(filename).name
         suffix = Path(name).suffix.lower()
-        if suffix not in (".pdf", ".docx", ".doc"):
-            raise ParseError(f"Unsupported file type: {suffix or '(none)'}. Use PDF or DOCX.")
+        if suffix not in (".pdf", ".docx", ".doc", ".txt", ".md", ".markdown", ".text"):
+            raise ParseError(f"Unsupported file type: {suffix or '(none)'}. Use PDF, DOCX, TXT or Markdown.")
         # unique stored filename
         import uuid
 
@@ -154,11 +154,18 @@ def store_upload(project_id: str, upload_bytes: bytes, filename: str) -> dict:
         dest = cfg.uploads_dir / stored_name
         dest.write_bytes(upload_bytes)
 
+        if suffix == ".pdf":
+            ftype = "pdf"
+        elif suffix in (".docx", ".doc"):
+            ftype = "docx"
+        else:
+            ftype = "txt"
+
         doc = meta.create_document(
             project_id=project_id,
             filename=name,
             stored_path=str(dest),
-            file_type="pdf" if suffix == ".pdf" else "docx",
+            file_type=ftype,
             status="pending",
         )
         logger.info("Stored upload %s -> %s", name, dest.name)
