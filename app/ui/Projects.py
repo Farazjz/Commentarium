@@ -245,8 +245,9 @@ def _render_doc_table(project_id: str, docs: list[dict]) -> None:
                 if d.get("error"):
                     st.caption(f"⚠️ {d['error']}")
 
-                # notes + tags editor (collapsible)
-                with st.expander("🏷 Tags & 📝 notes", expanded=False):
+                # notes + tags editor (collapsible via popover, since Streamlit
+                # forbids nesting expanders inside the project's expander)
+                with st.popover("🏷 Tags & 📝 notes"):
                     _render_tag_notes_editor(d)
     finally:
         vs.close()

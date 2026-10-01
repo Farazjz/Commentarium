@@ -137,7 +137,57 @@ def embed_texts_api(texts: list[str], *, model: str | None = None) -> list[list[
         return [list(it.embedding) for it in items]
     except Exception as exc:  # noqa: BLE001
         logger.exception("API embedding failed (model=%s)", model)
-        raise RuntimeError(f"API embedding failed: {exc}") from exc
+        raise RuntimeError(_describe_embed_error(exc, model)) from exc
+
+
+def _describe_embed_error(exc: Exception, model: str) -> str:
+    """Build a friendly, actionable message from an API embedding failure.
+
+    Strips raw HTML from proxy/gateway error bodies and flags the common
+    'plain HTTP sent to HTTPS port' misconfiguration so users know to check
+    their base URL / gateway.
+    """
+    import re
+
+    text = str(exc)
+    # Pull the raw response body if the client surfaced a response detail.
+    resp_body = ""
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        try:
+            resp_body = resp.text or ""
+        except Exception:  # noqa: BLE001
+            resp_body = ""
+    if resp_body:
+        text = f"{text} :: {resp_body}"
+
+    # Strip HTML tags so we don't dump a whole Cloudflare page into the UI.
+    cleaned = re.sub(r"<[^>]+>", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    hint = ""
+    low = cleaned.lower()
+    if "sent to https port" in low or "ssl" in low or "cloudflare" in low:
+        hint = (
+            " The gateway is rejecting plain HTTP over an HTTPS/Cloudflare edge. "
+            "Check your embedding base URL in Settings — if it points at a "
+            "Cloudflare/HTTPS gateway, use `https://`, or use the model id that "
+            "gateway actually serves."
+        )
+    elif "502" in cleaned or "bad gateway" in low:
+        hint = (
+            " The embedding gateway returned 502 (bad gateway) for this model. "
+            "Double-check that EMBEDDING_MODEL is a model the endpoint actually "
+            "supports, and that the gateway can reach it."
+        )
+    elif "401" in cleaned or "unauthorized" in low:
+        hint = " Check that the embedding API key is correct for that endpoint."
+    elif "404" in cleaned:
+        hint = " The endpoint/model was not found. Check the base URL and model id."
+
+    return (
+        f"API embedding failed for model `{model}`: {cleaned[:350]}{hint}"
+    )
 
 
 def _embed_cloudflare(texts: list[str]) -> list[list[float]]:
