@@ -1,0 +1,223 @@
+# 🧬 Thesis RAG
+
+A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
+**Word** documents, chat over them with the AI model of your choice, and get
+answers with **page-level citations** in APA 7 or Vancouver style.
+
+Built as a lean, thesis-focused alternative to
+[open-notebook](https://github.com/lfnovo/open-notebook) — privacy-first, runs
+entirely on your machine, using your own **OpenRouter** API key.
+
+---
+
+## ✨ Features
+
+- 🔒 **100% local & private** — your files never leave your computer
+- 📄 Upload **PDF** and **DOCX** files
+- 🤖 Bring your own AI — paste any **OpenRouter** API key, pick any **chat** model
+  and **embedding** backend (local `sentence-transformers` is free & private)
+- 🗂️ **Projects** to organise research (e.g. per thesis chapter)
+- 💬 **Chat** over your documents, with grounded, page-level citations
+  + resolved APA 7 / Vancouver references shown with each answer
+- 🎛️ **Per-project model control** — each project can override the chat model and
+  temperature (falling back to global defaults), plus a global temperature setting
+- 📝 **Citations** — auto-extract metadata (title/authors/year/journal/DOI via
+  Crossref), verify it, then render **APA 7** or **Vancouver** references
+- 🏷️ **Tags & notes per document** — freeform tags (filterable) and personal notes
+  on every paper
+- 🧠 **Multi-kind per-document summaries** — Brief, Detailed, Key points, TL;DR,
+  and a study **Quiz**, all cached so they don't burn tokens twice
+- 🎙️ **Podcast studio (NotebookLM-style)** — select papers, and the app writes a
+  two-host "deep dive" conversation and reads it aloud as an MP3 (edge-tts, free;
+  transcript-only fallback if TTS is unavailable)
+- 🛡️ **Embedding-dim guard** — prevents silent corruption if you change
+  embedding models; Projects page shows corpus-model identity and warns on mismatch
+- 🪵 **Log viewer** — live, filterable logs (file + console + in-app) for debugging
+
+## 🧱 Architecture
+
+```
+Your files (PDF/DOCX)
+      │  upload
+      ▼
+┌─────────────────────┐
+│  Ingest pipeline     │  parse (PyMuPDF / python-docx)
+│  parse → chunk       │  smart chunking w/ page mapping
+│  embed → store       │  local embeddings → NumPy/SQLite vector store
+└─────────┬───────────┘
+          ▼
+┌─────────────────────┐
+│  Retrieval (RAG)     │  cosine search → top-k chunks
+│                      │  each chunk carries file + page(s)
+└─────────┬───────────┘
+          ▼
+┌─────────────────────┐        ┌─────────────────────┐
+│  Answer generation   │ ─────▶ │  Citation layer      │
+│  (OpenRouter)        │        │  APA 7 / Vancouver   │
+└─────────────────────┘        └─────────────────────┘
+   answer + in-text markers → resolved to real Reference list
+```
+
+- **Backend:** FastAPI
+- **Frontend:** Streamlit
+- **AI:** OpenRouter / your gateway (OpenAI-compatible SDK)
+- **Embeddings:** sentence-transformers (local) or your gateway's `/embeddings`
+- **Vector store:** custom lightweight NumPy + SQLite (no C-compiler needed)
+- **Metadata store:** SQLite (projects, documents, citation metadata)
+- **Parsers:** PyMuPDF, python-docx (with optional OCR of scanned pages)
+- **Logging:** rotating file + console + in-app ring buffer
+
+> **Why a custom vector store?** On Windows + Python 3.12, ChromaDB needs
+> `chroma-hnswlib`, which must be compiled from source (Requires Visual C++
+> Build Tools). At the single-user / 100–300 file scale, direct cosine search
+> over a NumPy matrix is simpler, dependency-free and more than fast enough.
+
+## 🚀 Getting started
+
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+> If `sentence-transformers` needs to download a model on first use, ensure you
+> have internet access (the default local model `BAAI/bge-small-en-v1.5` is
+> fetched from Hugging Face once).
+
+### 2. Configure API key
+
+Copy the template and paste your OpenRouter key (you can also do this in the UI):
+
+```bash
+copy .env.example .env
+```
+
+Then edit `.env` and set `OPENROUTER_API_KEY=sk-or-...`.
+
+Get a key at **https://openrouter.ai/keys** (one key gives you access to
+literally thousands of models — Claude, Gemini, Llama, etc.).
+
+### 3. Run the app
+
+Open **two terminals** from the project folder:
+
+```bash
+# Terminal 1 — the UI
+run_ui.bat        # (or: streamlit run app/ui/main.py --server.port 8501)
+
+# Terminal 2 — the backend
+run_api.bat       # (or: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload)
+```
+
+Then open **http://localhost:8501** in your browser.
+
+### 4. First steps in the UI
+
+1. **⚙️ Settings** → paste your OpenRouter key → **Test connection** → pick your
+   chat model. Set OCR backends (incl. PaddleOCR-VL / TeleOCR) and podcast voices here.
+2. **📁 Projects & Files** → create a project, upload your PDF/Word papers, add
+   tags/notes, and generate summaries (Brief/Key points/Quiz…).
+3. **💬 Chat** → ask questions; answers come with page-level citations. Set a
+   per-project model/temperature in the sidebar.
+4. **📝 Citations** → verify document metadata; export APA 7 / Vancouver.
+5. **🎙 Podcast studio** → select papers and generate an audio deep-dive (MP3).
+6. **🪵 Log Viewer** → debug any errors live.
+
+---
+
+## 📁 Project layout
+
+```
+app/
+  main.py               # FastAPI entry + endpoints (/health, /projects, /documents, /chat, /citations, /podcasts, ...)
+  config.py             # .env settings, storage paths
+  logging_setup.py      # rotating file + console + in-app log buffer
+  models_openrouter.py  # OpenRouter client (test connection, list models, chat, embeddings)
+  db/
+    vectorstore.py      # NumPy + SQLite vector store (dimension guard, model identity)
+    metadata.py         # SQLite projects/documents/citation metadata + tags/notes/summaries/podcasts
+    chat.py             # SQLite chat sessions + message history
+  ingest/               # parsers (PDF/DOCX + OCR), chunking, embeddings, pipeline
+  rag/                  # retrieval (focused + distributed), prompts, generation, chat engine, summaries
+  podcast/              # NotebookLM-style script generation + edge-tts audio
+  shutdown.py           # helper to stop the local API + UI servers (Exit button)
+  citations/            # Crossref lookup, APA 7 / Vancouver formatters, resolution, service
+  ui/                   # Streamlit pages (main/Home/Projects/Chat/Podcast/Citations/Settings/Logs)
+data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
+.env                    # git-ignored: your secrets
+```
+
+## 🛠️ Development status (phases)
+
+- ✅ **Phase 1 — Foundation**: project skeleton, config, logging system, FastAPI
+  backend (`/health`, `/settings`, `/logs`), Streamlit UI shell, custom vector
+  store with insert/search/delete + persistence.
+- ✅ **Phase 2 — Ingestion**: PDF/DOCX parsers (PyMuPDF / python-docx), OCR of
+  scanned pages (Tesseract / vision), smart chunking with page + section
+  metadata, local & OpenRouter embedding backends, SQLite metadata store, and
+  full project/document management (create project, upload, ingest, re-index,
+  delete) with a working Streamlit **Projects & Files** page.
+- ✅ **Phase 3 — Chat + RAG**: query embedding + cosine retrieval (project
+  filter), grounded answer generation with a strict "only from context +
+  `[SRC:doc|page]` source tags" prompt, in-text source-tag parsing into
+  structured citations, and SQLite-backed chat sessions/history with a working
+  Streamlit **Chat** page.
+- ✅ **Phase 4 — Citations**: Crossref metadata extraction (by DOI or title
+  search with confidence ranking), user verification workflow, APA 7 +
+  Vancouver (NLM) reference formatters, a resolution layer that turns the
+  `[SRC:doc|page]` tags from Chat answers into real in-text citations +
+  a bibliography, and a Streamlit **Citations** page (verify/edit metadata,
+  preview the formatted reference).
+- ✅ **Phase 5 — Polish**: embedding-dimension consistency guard (fail loudly
+  on model switch + corpus-model mismatch banner), corpus model
+  identity tracking, stale-artifact cleanup, `.env.example` completeness,
+  README QA/troubleshooting, citations & prefill UI bugfixes.
+- ✅ **Phase 6 — Management + retrieval fix**: full project/chat management
+  (rename/edit/delete with cleanup), professional UI redesign (project cards,
+  inline document actions with **on-demand summaries**), section-weighted
+  retrieval (Reference chunks no longer crowd out real content), plus
+  **distributed retrieval** (top-K per document) for overview questions —
+  with auto-detect heuristics and a "Specific facts / Summarize papers"
+  toggle in Chat.
+- ✅ **Phase 7 — Exit / shutdown**: a "🛑 Exit" button in the sidebar (and a
+  `POST /shutdown` API endpoint) that gracefully stops both the API and UI
+  servers via `psutil` PID lookup on the listening ports.
+- ✅ **Phase 8 — Research workflow + podcast studio**: multi-kind per-document
+  summaries (Brief / Detailed / Key points / TL;DR / Quiz, cached), per-project
+  model & temperature overrides, a global temperature setting, document `tags`
+  (filterable) + freeform `notes`, and a **Podcast studio** that writes a
+  two-host "deep dive" script over selected papers and reads it aloud with
+  edge-tts (MP3 download; transcript-only fallback). OCR also gains the
+  **PaddleOCR-VL-1.6** and **TeleOCR** vision-language backends (local VLM
+  server first, gateway fallback).
+
+## 📝 Notes & troubleshooting
+
+- **OCR of scanned PDFs** requires [Tesseract](https://github.com/tesseract-ocr/tesseract)
+  installed (free, local). Set its path in Settings (`C:/Program Files/Tesseract-OCR/tesseract.exe`).
+- **Embedding model consistency**: the corpus vectors are tied to the embedding
+  model used at ingest time. If you switch models afterwards, ingestion and chat
+  will fail loudly with a "dimension mismatch" error. Fix it by switching the
+  model back in **Settings**, or **Re-index every document** with the new model
+  (Projects page → Re-index). The Projects page shows which model produced the
+  current corpus and warns on mismatch.
+- **Flaky internet**: embedding/chat calls and Crossref lookups need connectivity
+  to your gateway / upstream providers. Timeouts and "Bad Gateway" errors usually
+  resolve on retry; check the **Log Viewer** for details.
+- **Garbled or missing text in a PDF** usually means the pages are scans — install
+  Tesseract and set OCR Backend to `tesseract` (Settings → OCR & RAG tuning),
+  then Re-index the document. For state-of-the-art document parsing, choose
+  `paddleocr-vl` or `teleocr` and point them at a local VLM server (or let them
+  fall back to the gateway's vision model).
+- **Podcast audio** requires `pip install edge-tts` (listed in `requirements.txt`)
+  and internet access. If it's missing, the podcast is still generated and saved
+  as a transcript — switch `TTS_BACKEND=disabled` to suppress the audio attempt.
+- All logs are stored in `data/logs/app.log` (rotating). Every UI page shows
+  recent errors in a collapsible panel for quick debugging.
+- Check `.env.example` for every available setting.
+
+## 🔒 Privacy
+
+Everything runs locally. Your API key is stored only in your local `.env` /
+database and used only to call OpenRouter. Your documents and embeddings never
+leave your machine.
