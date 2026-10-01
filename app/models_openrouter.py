@@ -42,6 +42,7 @@ def _client() -> OpenAI:
     return OpenAI(
         api_key=cfg.openrouter_api_key,
         base_url=cfg.openrouter_base_url,
+        timeout=120.0,  # summaries can be slow through a local gateway
         http_client=_proxy_free_http_client(),
     )
 
@@ -61,7 +62,7 @@ def _client_embedding() -> OpenAI:
             "No embedding API key configured. In Settings set an embedding "
             "API key (or a main OpenRouter key)."
         )
-    return OpenAI(api_key=key, base_url=base, http_client=_proxy_free_http_client())
+    return OpenAI(api_key=key, base_url=base, timeout=120.0, http_client=_proxy_free_http_client())
 
 
 def test_connection(*, api_key: str | None = None, base_url: str | None = None) -> dict:

@@ -64,6 +64,10 @@ def _summary_meta():
     }
 
 
+def _summary_cache_key(document_id: str, kind: str) -> str:
+    return f"doc_summary_{document_id}_{kind}"
+
+
 def _render_project_cards() -> None:
     """Render the project grid with edit/delete actions."""
     meta = _open_meta()
@@ -219,8 +223,13 @@ def _render_doc_table(project_id: str, docs: list[dict]) -> None:
                     reidx = st.button("🔄 Re-index", key=f"re_{d['id']}", use_container_width=True)
                     dele = st.button("🗑 Delete", key=f"del_{d['id']}", use_container_width=True)
 
+                # ---- Summary: persist open state so the panel survives the
+                #      Streamlit rerun (otherwise the click "does nothing").
+                sum_key = f"doc_summary_open_{d['id']}"
                 if summ:
-                    _render_summary_panel(d["id"], d["filename"])
+                    st.session_state[sum_key] = True
+                if st.session_state.get(sum_key):
+                    _render_summary_panel(d["id"], d["filename"], sum_key)
                 if reidx:
                     try:
                         with st.spinner(f"Re-indexing {d['filename']}…"):
@@ -277,7 +286,7 @@ def _render_tag_notes_editor(d: dict) -> None:
         st.rerun()
 
 
-def _render_summary_panel(document_id: str, filename: str) -> None:
+def _render_summary_panel(document_id: str, filename: str, open_key: str | None = None) -> None:
     """Let the user pick a summary kind, then generate & show it (cached)."""
     vs = VectorStore(_NS)
     try:
@@ -287,12 +296,6 @@ def _render_summary_panel(document_id: str, filename: str) -> None:
     if not has:
         st.warning("This document has no indexed content. Re-index it first.")
         return
-
-    meta = _open_meta()
-    try:
-        available = meta.list_summary_kinds(document_id)
-    finally:
-        meta.close()
 
     smeta = _summary_meta()
     choices = list(smeta.keys())
@@ -305,18 +308,24 @@ def _render_summary_panel(document_id: str, filename: str) -> None:
         key=f"sum_kind_{document_id}",
     )
 
-    cache_key = f"doc_summary_{document_id}_{kind}"
-    summary = st.session_state.get(cache_key)
-    generate = st.button("✨ Generate", key=f"gen_sum_{document_id}", use_container_width=True)
-    if generate or (summary is None and kind in available):
+    st.session_state.setdefault(f"doc_summary_done_{document_id}", {})
+    done = st.session_state[f"doc_summary_done_{document_id}"]
+
+    # Auto-generate the currently-selected kind if it has never been produced
+    # for this doc (so clicking "Summary" shows content immediately).
+    if kind not in done:
         with st.spinner(f"Generating {smeta[kind][0]}…"):
             try:
-                from app.rag.summarize import summarize_document, KINDS
-                summary = summarize_document(document_id, kind=kind, force=generate)
-                st.session_state[cache_key] = summary
+                from app.rag.summarize import summarize_document
+                summary = summarize_document(document_id, kind=kind, force=False)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Could not generate summary: {exc}")
                 return
+        st.session_state[_summary_cache_key(document_id, kind)] = summary
+        done[kind] = True
+        st.session_state[f"doc_summary_done_{document_id}"] = done
+
+    summary = st.session_state[_summary_cache_key(document_id, kind)]
 
     if summary:
         st.markdown(smeta[kind][1])
@@ -325,7 +334,23 @@ def _render_summary_panel(document_id: str, filename: str) -> None:
             f"Based on {summary['chunks_used']} chunks · pages {summary.get('pages')} "
             + ("· cached" if summary.get("cached") else "· regenerated")
         )
-        st.session_state[cache_key] = summary
+
+    # Regenerate button (only re-runs the LLM for the current kind).
+    if st.button("🔄 Regenerate", key=f"reg_sum_{document_id}", use_container_width=True):
+        with st.spinner("Regenerating…"):
+            try:
+                from app.rag.summarize import summarize_document
+                summary = summarize_document(document_id, kind=kind, force=True)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not regenerate summary: {exc}")
+        st.session_state[_summary_cache_key(document_id, kind)] = summary
+        st.markdown(summary["summary"])
+        st.session_state[f"doc_summary_done_{document_id}"][kind] = True
+
+    if st.button("✖ Close summary", key=f"close_sum_{document_id}", use_container_width=True):
+        if open_key:
+            st.session_state.pop(open_key, None)
+        st.rerun()
 
 
 banner(
