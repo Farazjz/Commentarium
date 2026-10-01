@@ -151,6 +151,34 @@ def _render_project_cards() -> None:
                     st.rerun()
 
             st.divider()
+            # ---- Upload documents into this project
+            with st.container(border=True):
+                uploaded = st.file_uploader(
+                    f"Upload papers to **{p['name']}** (PDF / DOCX)",
+                    type=["pdf", "docx", "doc"],
+                    key=f"upload_{p['id']}",
+                )
+                up_submit = st.button(
+                    "⬆ Upload & index", key=f"up_btn_{p['id']}",
+                    use_container_width=True, disabled=not uploaded,
+                )
+                if up_submit and uploaded:
+                    try:
+                        data = uploaded.getvalue()
+                        if len(data) == 0:
+                            st.error("Uploaded file is empty.")
+                        else:
+                            with st.spinner(f"Ingesting {uploaded.name}…"):
+                                doc = store_upload(p["id"], data, uploaded.name)
+                                s = ingest_document(doc["id"])
+                            st.success(
+                                f"Uploaded **{uploaded.name}** → "
+                                f"{s['chunks']} chunks / {s['pages']} pages."
+                            )
+                            st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Upload/ingest failed: {exc}")
+
             # documents in this project
             docs = _documents(p["id"])
             if not docs:
