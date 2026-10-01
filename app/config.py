@@ -62,18 +62,43 @@ class Settings(BaseSettings):
     chat_temperature: float = 0.2
 
     # --- Podcast (NotebookLM-style deep dives) ---
-    # TTS backend:
-    #   "edge-tts" -> free MP3 via Microsoft Edge TTS (needs internet)
-    #   "api"      -> any OpenAI-compatible /v1/audio/speech endpoint (e.g. a
-    #                 local TTS server such as Kokoro / Silero / Piper / vLLM)
-    #   "disabled" -> transcript only (no audio)
-    tts_backend: str = "edge-tts"
+    # TTS provider:
+    #   "localhost" -> any OpenAI-compatible /v1/audio/speech endpoint (local & private)
+    #   "cloudflare" -> Cloudflare Workers AI TTS (needs account id + API token)
+    #   "google"    -> Google Cloud Text-to-Speech (needs API key)
+    #   "edge-tts"  -> free MP3 via Microsoft Edge TTS (needs internet + pip install)
+    #   "disabled"  -> transcript only (no audio)
+    tts_provider: str = "edge-tts"
+
+    # --- Localhost OpenAI-compatible server (tts_provider="localhost") ---
     tts_api_url: str = "http://localhost:20128/v1/audio/speech"
     tts_api_key: str = ""
     tts_api_model: str = ""          # e.g. "tts-1", "kokoro", "silero" ... (default "tts-1")
     tts_api_format: str = "mp3"      # "mp3" | "wav" | "opus" | "aac" | "flac"
-    podcast_host_a_voice: str = "en-US-ChristopherNeural"
-    podcast_host_b_voice: str = "en-US-JennyNeural"
+
+    # --- Cloudflare Workers AI (tts_provider="cloudflare") ---
+    cf_account_id: str = ""
+    cf_api_token: str = ""
+    cf_model: str = "@cf/microsoft/windows-captioning-or-tts"  # or @cf/playai/tts-*-v1
+
+    # --- Google Cloud Text-to-Speech (tts_provider="google") ---
+    google_api_key: str = ""
+    google_language_code: str = "en-US"
+
+    # --- Podcast hosts (1-3 people, with names, genders and voices) ---
+    # Each host has a name (spoken in the script and matched to its voice),
+    # a gender (female/male/neutral) used to pick the right Google/TTS voice,
+    # and a voice id for the active provider's TTS.
+    podcast_num_hosts: int = 2
+    podcast_host_1_name: str = "Alice"
+    podcast_host_1_gender: str = "female"
+    podcast_host_1_voice: str = "en-US-JennyNeural"
+    podcast_host_2_name: str = "Sam"
+    podcast_host_2_gender: str = "male"
+    podcast_host_2_voice: str = "en-US-ChristopherNeural"
+    podcast_host_3_name: str = "Priya"
+    podcast_host_3_gender: str = "female"
+    podcast_host_3_voice: str = "en-US-AriaNeural"
 
     @property
     def resolved_data_dir(self) -> Path:

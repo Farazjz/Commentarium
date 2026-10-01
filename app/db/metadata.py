@@ -103,6 +103,7 @@ class MetadataStore:
                 script TEXT,
                 audio_path TEXT,
                 duration_sec REAL DEFAULT 0,
+                tts_provider TEXT DEFAULT '',
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -143,6 +144,17 @@ class MetadataStore:
                     self._conn.commit()
             except Exception:  # noqa: BLE001
                 logger.debug("metadata migration skipped for project column %s", col)
+
+        # Column migrations for the podcasts table.
+        for col, coltype in (("tts_provider", "TEXT DEFAULT ''"),):
+            try:
+                cur = self._conn.execute("PRAGMA table_info(podcasts)")
+                existing = {r[1] for r in cur.fetchall()}
+                if col not in existing:
+                    self._conn.execute(f"ALTER TABLE podcasts ADD COLUMN {col} {coltype}")
+                    self._conn.commit()
+            except Exception:  # noqa: BLE001
+                logger.debug("metadata migration skipped for podcast column %s", col)
 
     # ------------------------------------------------------------------ helpers
     def _row(self, table: str, row_id: str) -> dict | None:

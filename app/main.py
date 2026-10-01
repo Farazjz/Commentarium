@@ -100,10 +100,13 @@ async def settings_summary():
         "paddleocr_vl_base_url": cfg.paddleocr_vl_base_url,
         "teleocr_model": cfg.teleocr_model,
         "teleocr_base_url": cfg.teleocr_base_url,
-        "tts_backend": cfg.tts_backend,
+        "tts_provider": cfg.tts_provider,
         "tts_api_url": cfg.tts_api_url,
         "tts_api_model": cfg.tts_api_model,
         "tts_api_format": cfg.tts_api_format,
+        "cf_model": cfg.cf_model,
+        "google_language_code": cfg.google_language_code,
+        "podcast_num_hosts": cfg.podcast_num_hosts,
     }
 
 

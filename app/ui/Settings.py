@@ -11,6 +11,7 @@ import streamlit as st
 
 from app.config import PROJECT_ROOT, get_settings
 from app.models_openrouter import fetch_models, test_connection, test_embedding
+from app.podcast.hosts import GENDERS, PROVIDERS, PROVIDER_LABELS, get_hosts
 from app.ui.helpers import banner
 
 logger = logging.getLogger("app")
@@ -245,21 +246,26 @@ citation_style = st.selectbox(
     index=0 if cfg.citation_style == "apa" else 1,
 )
 
-st.caption("**Podcast audio (NotebookLM-style)**")
-_tts_choices = ["edge-tts", "api", "disabled"]
-tts_backend = st.selectbox(
-    "Text-to-speech backend",
-    _tts_choices,
-    index=_tts_choices.index(cfg.tts_backend) if cfg.tts_backend in _tts_choices else 0,
+st.caption("**Podcast studio (NotebookLM-style)**")
+
+# ---- TTS provider selector --------------------------------------------------
+_provider_choices = list(PROVIDERS)
+provider = st.selectbox(
+    "Text-to-speech provider",
+    _provider_choices,
+    format_func=lambda k: PROVIDER_LABELS.get(k, k),
+    index=_provider_choices.index(cfg.tts_provider) if cfg.tts_provider in _provider_choices else 0,
     help=(
-        "edge-tts = free MP3 (requires `pip install edge-tts` + internet). "
-        "api = your own OpenAI-compatible /v1/audio/speech server (local & private). "
+        "localhost = your OpenAI-compatible /v1/audio/speech server (private). "
+        "cloudflare = Cloudflare Workers AI. google = Google Cloud TTS. "
+        "edge-tts = free MP3 (needs pip install edge-tts + internet). "
         "disabled = transcript only."
     ),
 )
 
-if tts_backend == "api":
-    st.caption("**Your TTS server** (any OpenAI-compatible `/v1/audio/speech` endpoint, e.g. Kokoro, Silero, Piper, vLLM…)")
+# ---- Provider-specific fields ------------------------------------------------
+if provider == "localhost":
+    st.caption("**Localhost server** (any OpenAI-compatible `/v1/audio/speech`, e.g. Kokoro, Silero, Piper, vLLM…)")
     api_url = st.text_input(
         "TTS API URL",
         value=cfg.tts_api_url or "http://localhost:20128/v1/audio/speech",
@@ -280,41 +286,105 @@ if tts_backend == "api":
         "TTS API key (optional)", value=cfg.tts_api_key, type="password",
         help="Only if your TTS server requires an API key.",
     )
+elif provider == "cloudflare":
+    st.caption("**Cloudflare Workers AI TTS** (Models AI → TTS, e.g. `@cf/microsoft/windows-captioning-or-tts` or `@cf/playai/tts-*-v1`).")
+    c_cf1, c_cf2 = st.columns(2)
+    cf_account = c_cf1.text_input("Account ID", value=cfg.cf_account_id)
+    cf_token = c_cf2.text_input("API Token", value=cfg.cf_api_token, type="password")
+    cf_model = st.text_input("Model", value=cfg.cf_model or "@cf/microsoft/windows-captioning-or-tts")
+elif provider == "google":
+    st.caption("**Google Cloud Text-to-Speech** (an API key with the Cloud Text-to-Speech API enabled).")
+    google_key = st.text_input("Google API Key", value=cfg.google_api_key, type="password")
+    google_lang = st.text_input(
+        "Language code", value=cfg.google_language_code or "en-US",
+        help="e.g. en-US, en-GB, fr-FR, de-DE, es-ES…",
+    )
 else:
+    # edge-tts / disabled: keep passthrough values
     api_url = cfg.tts_api_url
     api_model = cfg.tts_api_model
     api_format = cfg.tts_api_format
     api_key = cfg.tts_api_key
+    cf_account = cfg.cf_account_id
+    cf_token = cfg.cf_api_token
+    cf_model = cfg.cf_model
+    google_key = cfg.google_api_key
+    google_lang = cfg.google_language_code
 
-host_a_voice = st.text_input(
-    "Host A voice", value=cfg.podcast_host_a_voice,
-    help="Host A's voice id (a model/voice your TTS backend knows).",
+st.divider()
+
+# ---- Podcast hosts (1-3 people) ---------------------------------------------
+st.markdown("**🎤 Podcast hosts** (1-3 people, each with a name, gender and voice)")
+
+_hosts = get_hosts(cfg)
+
+num_hosts = st.selectbox(
+    "Number of hosts",
+    [1, 2, 3],
+    index=int(cfg.podcast_num_hosts) - 1 if 1 <= int(cfg.podcast_num_hosts) <= 3 else 1,
+    key="pod_num_hosts",
+    help="How many people should host the episode (1-3).",
 )
-host_b_voice = st.text_input(
-    "Host B voice", value=cfg.podcast_host_b_voice,
-    help="Host B's voice id. Pick a different one so the two hosts are distinct.",
-)
+
+host_values = {}
+for i in range(1, num_hosts + 1):
+    existing = next((h for h in _hosts if h.index == i), None)
+    st.markdown(f"**Host {i}**")
+    c_n, c_g, c_v = st.columns([2, 1, 2])
+    name = c_n.text_input(
+        f"Host {i} name", value=(existing.name if existing else f"Host {i}"),
+        key=f"pod_name_{i}",
+    )
+    gender = c_g.selectbox(
+        f"Host {i} gender",
+        list(GENDERS),
+        index=GENDERS.index(existing.gender) if existing and existing.gender in GENDERS else 0,
+        key=f"pod_gender_{i}",
+        format_func=lambda g: g.capitalize(),
+    )
+    voice = c_v.text_input(
+        f"Host {i} voice id",
+        value=(existing.voice if existing else ""),
+        key=f"pod_voice_{i}",
+        help="Voice id for the selected TTS provider (e.g. 'af_heart', 'en-US-JennyNeural', Google voice name).",
+    )
+    host_values[i] = (name, gender, voice)
 
 col_save_tune = st.button("💾 Save OCR & tuning", use_container_width=True)
 if col_save_tune:
-    _apply(
-        {
-            "OCR_BACKEND": ocr_backend,
-            "TESSERACT_CMD": tesseract_cmd.strip(),
-            "CHUNK_SIZE": str(chunk_size),
-            "TOP_K": str(top_k),
-            "CITATION_STYLE": citation_style,
-            "PADDLEOCR_VL_MODEL": paddle_vl_model.strip(),
-            "PADDLEOCR_VL_BASE_URL": paddle_vl_url.strip(),
-            "TELEOCR_MODEL": teleocr_model.strip(),
-            "TELEOCR_BASE_URL": teleocr_url.strip(),
-            "TTS_BACKEND": tts_backend,
-            "TTS_API_URL": api_url.strip(),
-            "TTS_API_MODEL": api_model.strip(),
-            "TTS_API_FORMAT": api_format,
-            "TTS_API_KEY": api_key.strip(),
-            "PODCAST_HOST_A_VOICE": host_a_voice.strip(),
-            "PODCAST_HOST_B_VOICE": host_b_voice.strip(),
-        }
-    )
-    st.success("OCR & tuning saved.")
+    updates = {
+        "OCR_BACKEND": ocr_backend,
+        "TESSERACT_CMD": tesseract_cmd.strip(),
+        "CHUNK_SIZE": str(chunk_size),
+        "TOP_K": str(top_k),
+        "CITATION_STYLE": citation_style,
+        "PADDLEOCR_VL_MODEL": paddle_vl_model.strip(),
+        "PADDLEOCR_VL_BASE_URL": paddle_vl_url.strip(),
+        "TELEOCR_MODEL": teleocr_model.strip(),
+        "TELEOCR_BASE_URL": teleocr_url.strip(),
+        # TTS provider + settings
+        "TTS_PROVIDER": provider,
+        "TTS_API_URL": (api_url if provider == "localhost" else cfg.tts_api_url).strip(),
+        "TTS_API_MODEL": (api_model if provider == "localhost" else cfg.tts_api_model).strip(),
+        "TTS_API_FORMAT": api_format if provider == "localhost" else cfg.tts_api_format,
+        "TTS_API_KEY": (api_key if provider == "localhost" else cfg.tts_api_key).strip(),
+        "CF_ACCOUNT_ID": (cf_account if provider == "cloudflare" else cfg.cf_account_id).strip(),
+        "CF_API_TOKEN": (cf_token if provider == "cloudflare" else cfg.cf_api_token).strip(),
+        "CF_MODEL": (cf_model if provider == "cloudflare" else cfg.cf_model).strip(),
+        "GOOGLE_API_KEY": (google_key if provider == "google" else cfg.google_api_key).strip(),
+        "GOOGLE_LANGUAGE_CODE": (google_lang if provider == "google" else cfg.google_language_code).strip(),
+        # hosts
+        "PODCAST_NUM_HOSTS": str(num_hosts),
+    }
+    for i in range(1, 4):
+        if i in host_values:
+            name_v, gender_v, voice_v = host_values[i]
+        else:
+            name_v = str(getattr(cfg, f"podcast_host_{i}_name", "") or "")
+            gender_v = str(getattr(cfg, f"podcast_host_{i}_gender", "") or "female")
+            voice_v = str(getattr(cfg, f"podcast_host_{i}_voice", "") or "")
+        updates[f"PODCAST_HOST_{i}_NAME"] = name_v.strip()
+        updates[f"PODCAST_HOST_{i}_GENDER"] = gender_v
+        updates[f"PODCAST_HOST_{i}_VOICE"] = voice_v.strip()
+    _apply(updates)
+    st.success("Podcast settings saved.")

@@ -19,8 +19,8 @@ logger = logging.getLogger("app")
 
 banner(
     "🎙 Podcast studio",
-    "NotebookLM-style deep dives: the app writes a two-host conversation about "
-    "your papers and reads it aloud (edge-tts MP3).",
+    "NotebookLM-style deep dives: the app writes a multi-host conversation about "
+    "your papers and reads it aloud via your chosen TTS provider (local, Cloudflare, Google, or edge-tts).",
 )
 
 # ------------------------------------------------------------------ project nav
@@ -79,12 +79,30 @@ if col_m.button("↻ Refresh list", use_container_width=True):
     st.rerun()
 
 cfg = get_settings()
-if cfg.tts_backend == "disabled":
+provider_override = ""
+if cfg.tts_provider == "disabled":
     st.caption("ℹ️ TTS is **disabled** (Settings). Generating will save a transcript only.")
-elif cfg.tts_backend == "api":
-    st.caption(f"🔊 TTS backend: **API server** → `{cfg.tts_api_url or '(not set)'}`. Host A `{cfg.podcast_host_a_voice}` / Host B `{cfg.podcast_host_b_voice}`.")
 else:
-    st.caption("🔊 TTS backend: **edge-tts** (free MP3, needs internet).")
+    labels = {
+        "localhost": f"🌐 Localhost API → `{cfg.tts_api_url or '(not set)'}`",
+        "cloudflare": "☁️ Cloudflare Workers AI",
+        "google": "🔎 Google Cloud TTS",
+        "edge-tts": "🎙 edge-tts (free MP3, internet)",
+    }
+    from app.podcast.hosts import PROVIDER_LABELS, get_hosts
+    hosts = get_hosts(cfg)
+    cast = ", ".join(f"{h.name} ({h.gender})" for h in hosts)
+    st.caption(f"🔊 TTS provider: **{labels.get(cfg.tts_provider, cfg.tts_provider)}** · Cast: {cast}")
+
+    # Optional per-episode provider override
+    from app.podcast.hosts import PROVIDERS
+    override_choice = st.selectbox(
+        "TTS provider for this episode (optional override)",
+        ["(use default from Settings)"] + [p for p in PROVIDERS if p != "disabled"],
+        format_func=lambda p: ("(use default from Settings)" if p.startswith("(use") else PROVIDER_LABELS.get(p, p)),
+        key="pod_provider_override",
+    )
+    provider_override = "" if override_choice.startswith("(use") else override_choice
 
 if gen:
     if not picked:
@@ -98,6 +116,7 @@ if gen:
                     project_id=sel_id,
                     document_ids=picked,
                     title=title.strip() or "Untitled deep dive",
+                    provider=provider_override or None,
                 )
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Generation failed: {exc}")
