@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from app.config import Settings, get_settings
 
 # Provider keys shown in settings / stored in TTS_PROVIDER
-PROVIDERS = ("localhost", "cloudflare", "google", "edge-tts", "disabled")
+PROVIDERS = ("localhost", "gateway-edge-tts", "cloudflare", "google", "edge-tts", "disabled")
 PROVIDER_LABELS = {
     "localhost": "🌐 Localhost API (OpenAI-compatible)",
+    "gateway-edge-tts": "🌐 Local gateway · edge-tts voices (9Router)",
     "cloudflare": "☁️ Cloudflare Workers AI",
     "google": "🔎 Google Cloud TTS API",
     "edge-tts": "🎙 edge-tts (free, internet)",

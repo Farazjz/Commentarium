@@ -231,6 +231,58 @@ def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=None)
     return _finalize(media, out_path, ext="mp3" if fmt == "mp3" else "mp3", provider="localhost")
 
 
+def _synthesize_gateway_edge_tts(script_lines, out_path, hosts, cfg, progress=None):
+    """edge-tts voices served as model ids by a local OpenAI-compatible gateway.
+
+    The 9Router gateway exposes edge-tts voices through /v1/audio/speech where the
+    *model id* encodes the voice, e.g. "edge-tts/en-US-JennyNeural". Unlike the
+    generic localhost provider (which sends a single fixed model + a voice field),
+    here each host's voice becomes that line's model id, so every host can sound
+    different. Uses proxy-free HTTP so the dead Windows system proxy can't break it.
+    """
+    url = (cfg.gateway_tts_url or cfg.tts_api_url or "").strip()
+    if not url:
+        raise PodcastError("Gateway edge-tts URL is not configured (Settings → Podcast).")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "http://" + url
+
+    headers = {"Content-Type": "application/json"}
+    key = (cfg.gateway_tts_key or cfg.tts_api_key or cfg.openrouter_api_key or "").strip()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
+    voices = _voice_map(hosts)
+    media = b""
+    total = len(script_lines) or 1
+    with get_client(timeout=120) as client:
+        for idx, line in enumerate(script_lines, start=1):
+            voice = voices.get(line.host_index) or voices.get(1)
+            if not voice:
+                logger.warning("gateway-edge-tts: host %s has no voice, skipping line %d", line.host_index, idx)
+                _notify_progress(progress, idx, total, "synthesizing", f"Skipping line {idx}/{total} (no voice configured)")
+                continue
+            model = f"edge-tts/{voice}"
+            payload = {"model": model, "input": line.text, "format": "mp3"}
+            # The gateway's upstream edge-tts is intermittently flaky (occasional
+            # 502 "fetch failed"), so retry each line a couple of times instead of
+            # silently dropping the host's spoken line.
+            for attempt in range(3):
+                try:
+                    resp = client.post(url, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    if resp.content:
+                        media += resp.content
+                        break
+                except Exception as exc:  # noqa: BLE001
+                    if attempt == 2:
+                        _log_line_error("gateway-edge-tts", model, exc)
+                    else:
+                        logger.warning("gateway-edge-tts retry %d for %s: %s", attempt + 1, model, exc)
+            _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({model})")
+
+    return _finalize(media, out_path, ext="mp3", provider="gateway-edge-tts")
+
+
 def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=None):
     """Cloudflare Workers AI text-to-speech."""
     account = cfg.cf_account_id.strip()
@@ -423,6 +475,8 @@ def _synthesize_audio(
         raise PodcastError("TTS is disabled (transcript-only mode).")
     if provider == "localhost":
         return _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=progress)
+    if provider == "gateway-edge-tts":
+        return _synthesize_gateway_edge_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "cloudflare":
         return _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "google":
@@ -556,6 +610,22 @@ def preview_voice(
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
         return resp.content, cfg.tts_api_format.strip().lower() or "mp3"
+
+    if provider == "gateway-edge-tts":
+        if not voice:
+            raise PodcastError("No voice configured to preview. Set host voices in Settings → Podcast.")
+        url = (cfg.gateway_tts_url or cfg.tts_api_url or "http://localhost:20128/v1/audio/speech").strip()
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = "http://" + url
+        headers = {"Content-Type": "application/json"}
+        key = (cfg.gateway_tts_key or cfg.tts_api_key or cfg.openrouter_api_key or "").strip()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        payload = {"model": f"edge-tts/{voice}", "input": sample_text, "format": "mp3"}
+        with get_client(timeout=60) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+        return resp.content, "mp3"
 
     if provider == "cloudflare":
         account = cfg.cf_account_id.strip()

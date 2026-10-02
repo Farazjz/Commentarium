@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     tts_api_model: str = ""          # e.g. "tts-1", "kokoro", "silero" ... (default "tts-1")
     tts_api_format: str = "mp3"      # "mp3" | "wav" | "opus" | "aac" | "flac"
 
+    # --- Gateway edge-tts (tts_provider="gateway-edge-tts") ---
+    # Any OpenAI-compatible /v1/audio/speech server that serves edge-tts voices
+    # as model ids like "edge-tts/en-US-JennyNeural" (e.g. the 9Router gateway).
+    # Reuses tts_api_url / tts_api_key; each host's voice becomes the model id.
+    gateway_tts_url: str = "http://localhost:20128/v1/audio/speech"
+    gateway_tts_key: str = ""
+
     # --- Cloudflare Workers AI (tts_provider="cloudflare") ---
     cf_account_id: str = ""
     cf_api_token: str = ""

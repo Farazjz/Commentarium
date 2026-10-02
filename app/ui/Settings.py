@@ -337,6 +337,8 @@ provider = st.selectbox(
     index=_provider_choices.index(cfg.tts_provider) if cfg.tts_provider in _provider_choices else 0,
     help=(
         "localhost = your OpenAI-compatible /v1/audio/speech server (private). "
+        "gateway-edge-tts = your local 9Router-style gateway serving edge-tts "
+        "voices as model ids (e.g. edge-tts/en-US-JennyNeural). "
         "cloudflare = Cloudflare Workers AI. google = Google Cloud TTS. "
         "edge-tts = free MP3 (needs pip install edge-tts + internet). "
         "disabled = transcript only."
@@ -372,6 +374,22 @@ elif provider == "cloudflare":
     cf_account = c_cf1.text_input("Account ID", value=cfg.cf_account_id)
     cf_token = c_cf2.text_input("API Token", value=cfg.cf_api_token, type="password")
     cf_model = st.text_input("Model", value=cfg.cf_model or "@cf/microsoft/windows-captioning-or-tts")
+elif provider == "gateway-edge-tts":
+    st.caption(
+        "**Local gateway · edge-tts voices** — uses your OpenAI-compatible gateway's "
+        "/v1/audio/speech, serving edge-tts voices as model ids "
+        "(`edge-tts/en-US-JennyNeural`). Each host's voice id becomes its model — "
+        "set each host's voice to an edge-tts name like `en-AU-NatashaNeural`."
+    )
+    gateway_url = st.text_input(
+        "Gateway /v1/audio/speech URL",
+        value=(cfg.gateway_tts_url or cfg.tts_api_url or "http://localhost:20128/v1/audio/speech"),
+        help="Full URL of the speech endpoint, including /v1/audio/speech.",
+    )
+    gateway_key = st.text_input(
+        "Gateway API key (optional)", value=(cfg.gateway_tts_key or cfg.tts_api_key or ""),
+        type="password", help="Leave blank if your gateway needs no auth.",
+    )
 elif provider == "google":
     st.caption("**Google Cloud Text-to-Speech** (an API key with the Cloud Text-to-Speech API enabled).")
     google_key = st.text_input("Google API Key", value=cfg.google_api_key, type="password")
@@ -390,6 +408,8 @@ else:
     cf_model = cfg.cf_model
     google_key = cfg.google_api_key
     google_lang = cfg.google_language_code
+    gateway_url = cfg.gateway_tts_url
+    gateway_key = cfg.gateway_tts_key
 
 st.divider()
 
@@ -448,6 +468,8 @@ if col_save_tune:
         "TTS_API_MODEL": (api_model if provider == "localhost" else cfg.tts_api_model).strip(),
         "TTS_API_FORMAT": api_format if provider == "localhost" else cfg.tts_api_format,
         "TTS_API_KEY": (api_key if provider == "localhost" else cfg.tts_api_key).strip(),
+        "GATEWAY_TTS_URL": locals().get("gateway_url", cfg.gateway_tts_url).strip(),
+        "GATEWAY_TTS_KEY": locals().get("gateway_key", cfg.gateway_tts_key).strip(),
         "CF_ACCOUNT_ID": (cf_account if provider == "cloudflare" else cfg.cf_account_id).strip(),
         "CF_API_TOKEN": (cf_token if provider == "cloudflare" else cfg.cf_api_token).strip(),
         "CF_MODEL": (cf_model if provider == "cloudflare" else cfg.cf_model).strip(),

@@ -85,6 +85,7 @@ if cfg.tts_provider == "disabled":
 else:
     labels = {
         "localhost": f"🌐 Localhost API → `{cfg.tts_api_url or '(not set)'}`",
+        "gateway-edge-tts": f"🌐 Gateway edge-tts → `{(cfg.gateway_tts_url or cfg.tts_api_url) or '(not set)'}`",
         "cloudflare": "☁️ Cloudflare Workers AI",
         "google": "🔎 Google Cloud TTS",
         "edge-tts": "🎙 edge-tts (free MP3, internet)",
