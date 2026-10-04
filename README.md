@@ -196,8 +196,9 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
   **VoiceStudio** server (voice cloning/design, per-host languages `en`/`fa`,
   dropdown voice picking, connection test), or any OpenAI-compatible
   `/v1/audio/speech` endpoint. Episode list supports **delete** (incl. failed /
-  in-progress episodes). OCR also gains the **PaddleOCR-VL-1.6** and **TeleOCR**
-  vision-language backends (local VLM server first, gateway fallback).
+  in-progress episodes). OCR also gains the [**PaddleOCR-VL-1.6**](https://github.com/PADDLEPADDLE/PADDLEOCR)
+  and [**TeleOCR**](https://github.com/caipeng328/TeleOCR) vision-language backends
+  (local VLM server first, gateway fallback).
 
 ## 📝 Notes & troubleshooting
 
@@ -247,3 +248,37 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
 Everything runs locally. Your API key is stored only in your local `.env` /
 database and used only to call OpenRouter. Your documents and embeddings never
 leave your machine.
+
+## 🙏 Acknowledgements
+
+Commentarium is built with, and relies on, several open-source projects.
+Respect their licenses when distributing or modifying this app:
+
+- **[OpenRouter](https://openrouter.ai)** — optional AI gateway (API key; usage
+  subject to their [Terms](https://openrouter.ai/terms)).
+- **[FastAPI](https://github.com/fastapi/fastapi)** (MIT) — backend web framework.
+- **[Streamlit](https://github.com/streamlit/streamlit)** (Apache-2.0) — UI frontend.
+- **[sentence-transformers](https://github.com/UKPLab/sentence-transformers)** (Apache-2.0) —
+  local embedding models (e.g. `BAAI/bge-small-en-v1.5`, BAAI's own terms apply
+  to the model weights).
+- **[PyMuPDF](https://github.com/pymupdf/PyMuPDF)** (AGPL-3.0) — PDF parsing.
+- **[python-docx](https://github.com/python-openxml/python-docx)** (MIT) — DOCX parsing.
+- **[Tesseract OCR](https://github.com/tesseract-ocr/tesseract)** (Apache-2.0) —
+  scanned-page OCR (installed separately, local).
+- **[PaddleOCR / PaddleOCR-VL](https://github.com/PaddlePaddle/PaddleOCR)** (Apache-2.0,
+  repo; the `PaddleOCR-VL-1.6` **model weights** are under separate terms — review
+  them before distributing) — the vision-language OCR backends.
+- **[TeleOCR](https://github.com/caipeng328/TeleOCR)** — the `teleocr` vision-language
+  OCR backend (check its license before redistributing the model).
+- **[Crossref API](https://www.crossref.org/documentation/retrieve-metadata/rest-api)**
+  (public metadata API, used under their terms) — citation lookup.
+- **[edge-tts](https://github.com/rany2/edge-tts)** (LGPL-3.0) — podcast TTS.
+- **[VoiceStudio](https://github.com/debpalash/VoiceStudio)** (AGPL-3.0) — optional
+  local voice-cloning TTS server (separate app, runs on `:3900`).
+- **[open-notebook](https://github.com/lfnovo/open-notebook)** — the project
+  Commentarium was inspired by (thesis-focused, leaner alternative).
+- **[huggingface_hub / Hugging Face models](https://huggingface.co)** — model
+  downloads; each model's license governs the weights.
+
+If you reuse or extend Commentarium, keep this list current so downstream users
+know the licenses of the components bundled or required at runtime.
