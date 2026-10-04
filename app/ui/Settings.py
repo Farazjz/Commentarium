@@ -9,7 +9,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from app.config import PROJECT_ROOT, get_settings
+from app.config import PROJECT_ROOT, Settings, get_settings
 from app.models_openrouter import fetch_models, test_connection, test_embedding
 from app.podcast.hosts import GENDERS, PROVIDERS, PROVIDER_LABELS, get_hosts
 from app.ui.helpers import banner, browse_folder_dialog, render_last_errors
@@ -292,6 +292,22 @@ ocr_backend = st.selectbox(
 )
 tesseract_cmd = st.text_input("Tesseract executable path", value=cfg.tesseract_cmd or "")
 
+# Default indexing mode: OCR+index vs direct-embed. Used when you upload/index
+# without choosing a mode; per-upload / per-document choices override it.
+default_ocr = st.radio(
+    "Default indexing mode",
+    ["OCR + index", "Direct index (text only, faster)"],
+    index=0 if cfg.default_ocr else 1,
+    horizontal=True,
+    key="default_ocr_mode",
+    help=(
+        "OCR + index: scanned/image PDF pages are OCR'd before embedding "
+        "(best for old/scan-heavy PDFs). Direct index: text extracted only, "
+        "no OCR (fastest for Word/text files and text-based PDFs). You can "
+        "still pick per-upload or per-document from the Projects page."
+    ),
+)
+
 st.caption("**Vision-language OCR** (PaddleOCR-VL / TeleOCR)")
 paddle_vl_model = st.text_input(
     "PaddleOCR-VL model id",
@@ -340,12 +356,14 @@ provider = st.selectbox(
         "gateway-edge-tts = your local 9Router-style gateway serving edge-tts "
         "voices as model ids (e.g. edge-tts/en-US-JennyNeural). "
         "cloudflare = Cloudflare Workers AI. google = Google Cloud TTS. "
-        "edge-tts = free MP3 (needs pip install edge-tts + internet). "
+        "voicestudio = your local VoiceStudio server (voice cloning / design, "
+        "fully local). edge-tts = free MP3 (needs pip install edge-tts + internet). "
         "disabled = transcript only."
     ),
 )
 
 # ---- Provider-specific fields ------------------------------------------------
+vs_voices: list = []
 if provider == "localhost":
     st.caption("**Localhost server** (any OpenAI-compatible `/v1/audio/speech`, e.g. Kokoro, Silero, Piper, vLLM…)")
     api_url = st.text_input(
@@ -397,6 +415,71 @@ elif provider == "google":
         "Language code", value=cfg.google_language_code or "en-US",
         help="e.g. en-US, en-GB, fr-FR, de-DE, es-ES…",
     )
+elif provider == "voicestudio":
+    st.caption(
+        "**VoiceStudio (local server)** — fully local voice cloning / design. "
+        "Point at a running VoiceStudio backend (default `http://localhost:3900`); "
+        "optionally supply a Bearer key when it runs on another machine."
+    )
+    vs_url = st.text_input(
+        "VoiceStudio base URL",
+        value=cfg.voicestudio_url or "http://localhost:3900",
+        help="Base URL of a running VoiceStudio backend (omit the /v1 suffix). Loopback needs no key.",
+    )
+    vs_key = st.text_input(
+        "VoiceStudio API key (optional)",
+        value=cfg.voicestudio_api_key,
+        type="password",
+        help="Only when the VoiceStudio backend requires one (remote host / OMNIVOICE_API_KEY / PIN).",
+    )
+
+    # --- connection test (tests the live values above, not the saved cfg) --
+    if st.button("🔌 Test VoiceStudio connection", key="vs_test", use_container_width=False):
+        from app.httpclient import get_client
+        probe = "http://" + vs_url.strip() if vs_url.strip() and not vs_url.strip().startswith(("http://", "https://")) else vs_url.strip() or "http://localhost:3900"
+        base = probe.rstrip("/")
+        ok = False
+        headers = {"Content-Type": "application/json"}
+        if vs_key.strip():
+            headers["Authorization"] = f"Bearer {vs_key.strip()}"
+        try:
+            with get_client(timeout=10) as client:
+                r = client.get(f"{base}/v1/audio/voices", headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            ok = True
+            n_voices = len(data.get("voices") or [])
+            n_engines = len(data.get("engines") or [])
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not reach VoiceStudio at {base}. Is the VoiceStudio app running? ({exc})")
+        if ok:
+            st.success(f"Connected — {n_voices} voice(s), {n_engines} engine(s).")
+
+    vs_model = st.text_input(
+        "VoiceStudio engine model (optional)",
+        value=cfg.voicestudio_model,
+        placeholder="omnivoice (active engine)",
+        help="A VoiceStudio engine id (e.g. omnivoice, voxcpm2, cosyvoice, kittentts). Empty = the active engine.",
+    )
+    vs_format = st.selectbox(
+        "Output format", ["mp3", "wav", "opus", "aac", "flac", "pcm"],
+        index=["mp3", "wav", "opus", "aac", "flac", "pcm"].index(cfg.voicestudio_format)
+        if cfg.voicestudio_format in ["mp3", "wav", "opus", "aac", "flac", "pcm"] else 0,
+        help="mp3 recommended. wav/flac/pcm need no VoiceStudio ffmpeg; mp3/opus/aac need VoiceStudio's bundled ffmpeg.",
+    )
+
+    # --- optional voice-list load (populates the per-host dropdowns below) --
+    vs_voices = list(st.session_state.get("vs_voices", []))
+    if st.button("🔄 Load voices from VoiceStudio", key="vs_load", use_container_width=False):
+        from app.podcast.generate import list_voicestudio_voices
+        vs_voices = list_voicestudio_voices()
+        if vs_voices:
+            st.session_state["vs_voices"] = vs_voices
+            st.success(f"Loaded {len(vs_voices)} voice(s). Choose each host's voice below.")
+        else:
+            st.error("No voices returned. Is VoiceStudio running? Once it is, click Load again — or type a voice profile id manually.")
+        if vs_voices:
+            st.caption("Loaded VoiceStudio voices are shown as dropdowns per host below.")
 else:
     # edge-tts / disabled: keep passthrough values
     api_url = cfg.tts_api_url
@@ -442,12 +525,42 @@ for i in range(1, num_hosts + 1):
         key=f"pod_gender_{i}",
         format_func=lambda g: g.capitalize(),
     )
-    voice = c_v.text_input(
-        f"Host {i} voice id",
-        value=(existing.voice if existing else ""),
-        key=f"pod_voice_{i}",
-        help="Voice id for the selected TTS provider (e.g. 'af_heart', 'en-US-JennyNeural', Google voice name).",
-    )
+    if provider == "voicestudio" and vs_voices:
+        # Real profiles only — skip OpenAI placeholder aliases (alloy etc.).
+        lang_voices = [v for v in vs_voices if v.get("type") != "openai_alias"]
+        voices_labels = {v["voice_id"]: f"{v['name']} ({v['voice_id']})" for v in lang_voices}
+        current = existing.voice if existing else ""
+        options = ["(custom id…)"] + sorted(voices_labels.keys())
+        # keep the current id selectable even if it was filtered out
+        if current and current not in options:
+            options.append(current)
+            voices_labels[current] = current
+        sel = current if current in voices_labels else "(custom id…)"
+        index = options.index(sel) if sel in options else 0
+        chosen = c_v.selectbox(
+            f"Host {i} voice — VoiceStudio profile",
+            options,
+            index=index,
+            key=f"pod_voice_{i}",
+            format_func=lambda o: voices_labels.get(o, o),
+        )
+        if chosen == "(custom id…)":
+            custom_v = c_v.text_input(
+                f"Host {i} voice id (manual)",
+                value=current,
+                key=f"pod_voice_custom_{i}",
+                help="Paste a VoiceStudio voice profile id, or engine preset name.",
+            )
+            voice = custom_v
+        else:
+            voice = chosen
+    else:
+        voice = c_v.text_input(
+            f"Host {i} voice id",
+            value=(existing.voice if existing else ""),
+            key=f"pod_voice_{i}",
+            help="Voice id for the selected TTS provider (e.g. 'af_heart', 'en-US-JennyNeural', Google voice name).",
+        )
     host_values[i] = (name, gender, voice)
 
 col_save_tune = st.button("💾 Save OCR & tuning", use_container_width=True)
@@ -455,6 +568,7 @@ if col_save_tune:
     updates = {
         "OCR_BACKEND": ocr_backend,
         "TESSERACT_CMD": tesseract_cmd.strip(),
+        "DEFAULT_OCR": "true" if default_ocr.startswith("OCR") else "false",
         "CHUNK_SIZE": str(chunk_size),
         "TOP_K": str(top_k),
         "CITATION_STYLE": citation_style,
@@ -475,6 +589,10 @@ if col_save_tune:
         "CF_MODEL": (cf_model if provider == "cloudflare" else cfg.cf_model).strip(),
         "GOOGLE_API_KEY": (google_key if provider == "google" else cfg.google_api_key).strip(),
         "GOOGLE_LANGUAGE_CODE": (google_lang if provider == "google" else cfg.google_language_code).strip(),
+        "VOICESTUDIO_URL": (vs_url if provider == "voicestudio" else cfg.voicestudio_url).strip(),
+        "VOICESTUDIO_API_KEY": (vs_key if provider == "voicestudio" else cfg.voicestudio_api_key).strip(),
+        "VOICESTUDIO_MODEL": (vs_model if provider == "voicestudio" else cfg.voicestudio_model).strip(),
+        "VOICESTUDIO_FORMAT": vs_format if provider == "voicestudio" else cfg.voicestudio_format,
         # hosts
         "PODCAST_NUM_HOSTS": str(num_hosts),
     }

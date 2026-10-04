@@ -10,5 +10,11 @@ pydantic-settings==2.7.0
 python-dotenv==1.0.1
 httpx==0.28.1
 numpy==1.26.4
+
+# Podcast TTS: edge-tts (free, internet) — used as a local TTS provider.
+# VoiceStudio (https://github.com/debpalash/VoiceStudio) is a separate desktop
+# app / local HTTP service (OpenAI-compatible, default http://localhost:3900),
+# NOT a pip package — no dependency here; just have it running and pick it in
+# Settings → Podcast audio. All podcast TTS providers use httpx above.
 edge-tts==6.1.9
 pillow>=10.0.0

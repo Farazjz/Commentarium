@@ -101,15 +101,24 @@ def parse_docx(path: str | Path) -> list[dict]:
         raise ParseError(f"Failed to parse DOCX {path.name}: {exc}") from exc
 
 
-def parse_file(path: str | Path) -> tuple[list[dict], str]:
+def parse_file(path: str | Path, *, use_ocr: bool = True) -> tuple[list[dict], str]:
     """Parse a file into per-page text. Returns (pages, file_type).
 
     file_type is "pdf", "docx" or "txt".
+
+    `use_ocr` controls whether scanned/image PDF pages are run through OCR.
+    - ``True`` (default): pages with no embedded text are OCR'd (if a backend
+      is available).
+    - ``False`` (direct/embedding-only indexing): PDFs are extracted for text
+      only; image-only pages are left empty (faster, no OCR cost).
+
+    DOCX / TXT / MD already contain their text directly, so `use_ocr` has no
+    effect on them (it applies to scanned PDF pages).
     """
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        return parse_pdf(path), "pdf"
+        return parse_pdf(path, use_ocr=use_ocr), "pdf"
     if suffix in (".docx", ".doc"):
         return parse_docx(path), "docx"
     if suffix in (".txt", ".md", ".markdown", ".text"):

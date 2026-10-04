@@ -1,5 +1,5 @@
 ' ============================================================
-'  Thesis RAG - hidden server launcher
+'  Commentarium - hidden server launcher
 '  Starts the FastAPI backend and the Streamlit UI with no
 '  windows (background) so no cmd windows appear.
 '  Args come from env vars set by run_all.bat:

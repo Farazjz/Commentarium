@@ -119,19 +119,64 @@ def _authors(doc: dict) -> list[str]:
         return []
 
 
-def _build_script_system(hosts: list[Host]) -> str:
-    """System prompt describing the host lineup to the LLM."""
+def _build_script_system(
+    hosts: list[Host],
+    duration_setting: str = "medium",
+    custom_prompt: str | None = None,
+    **kwargs,
+) -> str:
+    """System prompt describing the host lineup to the LLM.
+
+    If `custom_prompt` is provided (and not blank), it is used instead of the built-in default.
+    Otherwise, the built-in default prompt is constructed using the host lineup
+    and word count target corresponding to `duration_setting`.
+    """
+    # If a custom prompt is provided and non-empty, use it directly
+    if custom_prompt and custom_prompt.strip():
+        return custom_prompt.strip()
+
+    # Built-in default prompt
     cast = ", ".join(
         f"{h.name} ({h.gender})" for h in hosts
     )
     line_format = "\n".join(f"{h.name}: <{h.name}'s spoken line>" for h in hosts)
     n = len(hosts)
+
+    # Prefer the (majority) host language for the dialogue; fall back to "en".
+    lang = "en"
+    if hosts:
+        langs = [getattr(h, "language", "") or "en" for h in hosts]
+        lang = max(set(langs), key=langs.count)
+    if lang not in ("en", "fa"):
+        lang = "en"
+    _LANG_NAME = {"en": "English", "fa": "Persian (Farsi)"}
+    lang_clause = (
+        f"IMPORTANT — the ENTIRE episode MUST be written in "
+        f"{_LANG_NAME.get(lang, lang)} (language code '{lang}'). "
+        f"Every single line — including greetings and all dialogue — must be in "
+        f"{_LANG_NAME.get(lang, lang)}. "
+        "Do not write any line in English. Do not mix languages."
+    )
+
+    # Word count targets based on duration setting
+    if duration_setting == "short":
+        word_range = "400-700"
+        duration_hint = "2-5 minutes"
+    elif duration_setting == "long":
+        word_range = "1800-2500"
+        duration_hint = "11-20 minutes"
+    else:  # medium
+        word_range = "800-1300"
+        duration_hint = "6-10 minutes"
+
     return (
         "You are a podcast producer creating a lively, conversational 'deep dive' "
         f"episode between {n} host(s) discussing a set of research papers for a "
         "curious but non-expert listener.\n\n"
         f"The cast is: {cast}.\n\n"
-        "Rules:\n"
+        "The number-one rule, more important than anything else, is the language "
+        "of the final output:\n"
+        f"- {lang_clause}\n"
         "- Base every claim strictly on the provided summaries; never invent facts, "
         "numbers, or studies.\n"
         "- Write natural, engaging dialogue with a clear flow: intro -> what the "
@@ -141,13 +186,19 @@ def _build_script_system(hosts: list[Host]) -> str:
         "by a colon and the spoken text (no markdown, no quotes). Example:\n"
         f"{line_format}\n"
         f"- Use all {n} host(s) and keep the dialogue balanced between them.\n"
-        f"- Keep it roughly {600 + 200 * n}-{900 + 200 * n} words total.\n"
+        f"- Target approximately {duration_hint} of audio (~{word_range} words total).\n"
         "- Output ONLY the dialogue lines, nothing else."
     )
 
 
 def _generate_script(
-    title: str, context: str, hosts: list[Host], model: str | None = None
+    title: str,
+    context: str,
+    hosts: list[Host],
+    model: str | None = None,
+    duration_setting: str = "medium",
+    custom_prompt: str | None = None,
+    **kwargs,
 ) -> str:
     user_msg = (
         f"The deep-dive episode is titled '{title}'.\n\n"
@@ -155,13 +206,56 @@ def _generate_script(
         "Write the episode dialogue now."
     )
     messages = [
-        {"role": "system", "content": _build_script_system(hosts)},
+        {
+            "role": "system",
+            "content": _build_script_system(
+                hosts, duration_setting=duration_setting, custom_prompt=custom_prompt
+            ),
+        },
         {"role": "user", "content": user_msg},
     ]
     try:
-        return chat_completion(messages, temperature=0.8, max_tokens=2600, model=model)
+        return chat_completion(messages, temperature=0.8, max_tokens=4000, model=model)
     except LLMClientError as exc:
         raise PodcastError(f"Could not generate podcast script: {exc}") from exc
+
+
+def _looks_persian(text: str) -> bool:
+    """True if the text contains a meaningful amount of Persian/Arabic script."""
+    sample = (text or "")[:2000]
+    arabic = sum(1 for ch in sample if "\u0600" <= ch <= "\u06FF")
+    return arabic >= 10
+
+
+def _translate_script_to(script: str, language: str, model: str | None = None) -> str:
+    """Translate a generated script to `language`, keeping the host: line format.
+
+    Used as a guaranteed fallback: even if the script model ignored the
+    language instruction, this turns the dialogue into the target language
+    before it is sent to TTS. Preserves the "Name: text" line structure so the
+    audio/speaker mapping is unchanged.
+    """
+    target = {"fa": "Persian (Farsi)"}.get(language, language)
+    system = (
+        f"You are a professional translator. Translate the entire podcast script "
+        f"below into {target} (language code '{language}').\n"
+        "Rules:\n"
+        f"- Keep EVERY line's speaker-name prefix exactly as-is, followed by ': ' "
+        f"and then the translated text in {target}.\n"
+        f"- Translate every line completely into {target}; do not leave any "
+        f"dialogue in another language.\n"
+        "- Preserve the exact number of lines and their order.\n"
+        "- Keep Arabic numerals and technical terms natural in the target language.\n"
+        "- Output ONLY the translated dialogue lines, nothing else."
+    )
+    try:
+        return chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": script}],
+            temperature=0.3, max_tokens=4000, model=model,
+        )
+    except LLMClientError as exc:
+        logger.warning("Podcast translation failed, keeping original script: %s", exc)
+        return script
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +266,75 @@ def _generate_script(
 def _voice_map(hosts: list[Host]) -> dict[int, str]:
     """Map host_index -> voice id (falling back to a sensible default)."""
     return {h.index: (h.voice or "") for h in hosts}
+
+
+# -- VoiceStudio local server helpers --------------------------------------
+
+def _voicestudio_base(cfg) -> str:
+    """Normalized VoiceStudio base URL (scheme://host:port, no trailing slash)."""
+    url = (cfg.voicestudio_url or "http://localhost:3900").strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "http://" + url
+    return url.rstrip("/")
+
+
+def _voicestudio_headers(cfg) -> dict:
+    headers = {"Content-Type": "application/json"}
+    key = (cfg.voicestudio_api_key or "").strip()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+def list_voicestudio_voices(cfg=None) -> list[dict]:
+    """Fetch available VoiceStudio voices from GET {url}/v1/audio/voices.
+
+    Returns a list of dicts with at least ``voice_id`` and ``name`` (and
+    ``language`` when the profile declares one). Non-fatal: on any error an
+    empty list is returned so callers can fall back to manual voice ids.
+    """
+    cfg = cfg or get_settings()
+    base = _voicestudio_base(cfg)
+    try:
+        with get_client(timeout=10) as client:
+            r = client.get(f"{base}/v1/audio/voices", headers=_voicestudio_headers(cfg))
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("VoiceStudio voice list unavailable (%s): %s", base, exc)
+        return []
+    out = []
+    for v in data.get("voices") or []:
+        if isinstance(v, dict):
+            vid = v.get("voice_id") or v.get("id")
+            if vid:
+                out.append({
+                    "voice_id": str(vid),
+                    "name": str(v.get("name") or vid),
+                    "language": (v.get("language") or "").strip().lower(),
+                    "type": str(v.get("type") or ""),
+                    "description": str(v.get("description") or ""),
+                })
+    return out
+
+
+def voicestudio_is_reachable(cfg=None) -> tuple[bool, str]:
+    """Probe the VoiceStudio server. Returns (ok, human readable message)."""
+    cfg = cfg or get_settings()
+    base = _voicestudio_base(cfg)
+    try:
+        with get_client(timeout=10) as client:
+            r = client.get(f"{base}/v1/audio/voices", headers=_voicestudio_headers(cfg))
+            r.raise_for_status()
+            data = r.json()
+        voices = data.get("voices") or []
+        engines = data.get("engines") or []
+        return True, f"Connected — {len(voices)} voice(s), {len(engines)} engine(s)."
+    except Exception as exc:  # noqa: BLE001
+        return False, (
+            f"Could not reach VoiceStudio at {base}. Is the VoiceStudio app running? "
+            f"({exc})"
+        )
 
 
 def _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=None):
@@ -281,6 +444,62 @@ def _synthesize_gateway_edge_tts(script_lines, out_path, hosts, cfg, progress=No
             _notify_progress(progress, idx, total, "synthesizing", f"Synthesizing line {idx}/{total} ({model})")
 
     return _finalize(media, out_path, ext="mp3", provider="gateway-edge-tts")
+
+
+def _synthesize_voicestudio_tts(script_lines, out_path, hosts, cfg, progress=None):
+    """VoiceStudio local OpenAI-compatible /v1/audio/speech endpoint.
+
+    Adapts the existing scripted `script_lines` into **batch-per-host**
+    requests: consecutive lines spoken by the same host are joined into a
+    single synthesis request (joined with a blank line, which the TTS engine
+    renders as a natural pause), so a 10-minute episode makes a handful of
+    round-trips to the GPU queue instead of one per spoken line.
+
+    Each batch is POSTed to {base}/v1/audio/speech with the host's voice id
+    (a VoiceStudio profile) and language. Returns (duration, written path).
+    """
+    base = _voicestudio_base(cfg)
+    url = f"{base}/v1/audio/speech"
+    model = cfg.voicestudio_model.strip() or "omnivoice"
+    fmt = cfg.voicestudio_format.strip().lower() or "mp3"
+    headers = _voicestudio_headers(cfg)
+
+    # Group consecutive same-host lines into batches.
+    batches: list[tuple[int, list[ScriptLine]]] = []
+    for line in script_lines:
+        if batches and batches[-1][0] == line.host_index:
+            batches[-1][1].append(line)
+        else:
+            batches.append((line.host_index, [line]))
+
+    media = b""
+    total = len(batches) or 1
+    with get_client(timeout=180) as client:
+        for idx, (host_index, lines) in enumerate(batches, start=1):
+            host = next((h for h in hosts if h.index == host_index), None)
+            voice = (host.voice if host else "") or ""
+            language = (host.language if host else "") or ""
+            if not voice:
+                logger.warning("voicestudio: host %s has no voice, skipping batch %d", host_index, idx)
+                _notify_progress(progress, idx, total, "synthesizing", f"Skipping batch {idx}/{total} (no voice)")
+                continue
+            text = "\n\n".join(ln.text for ln in lines)
+            payload = {"model": model, "input": text, "voice": voice, "response_format": fmt}
+            if language:
+                payload["language"] = language
+            try:
+                resp = client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                if resp.content:
+                    media += resp.content
+            except Exception as exc:  # noqa: BLE001
+                _log_line_error("voicestudio", voice, exc)
+            _notify_progress(
+                progress, idx, total, "synthesizing",
+                f"Synthesizing batch {idx}/{total} ({voice}, {language or 'default'})",
+            )
+
+    return _finalize(media, out_path, ext=fmt, provider="voicestudio")
 
 
 def _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=None):
@@ -477,6 +696,8 @@ def _synthesize_audio(
         return _synthesize_localhost_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "gateway-edge-tts":
         return _synthesize_gateway_edge_tts(script_lines, out_path, hosts, cfg, progress=progress)
+    if provider == "voicestudio":
+        return _synthesize_voicestudio_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "cloudflare":
         return _synthesize_cloudflare_tts(script_lines, out_path, hosts, cfg, progress=progress)
     if provider == "google":
@@ -501,6 +722,10 @@ def generate_podcast(
     model: str | None = None,
     provider: str | None = None,
     progress=None,
+    system_prompt: str | None = None,
+    duration_setting: str = "medium",
+    host_languages: dict[int, str] | None = None,
+    **kwargs,
 ) -> dict:
     """Generate a podcast for the given documents and persist it.
 
@@ -508,11 +733,19 @@ def generate_podcast(
     `progress` is an optional callback(done, total, action, message) invoked as
     generation moves through its stages (summarize -> script -> synthesize) and
     per synthesized line, so a UI can show a live progress bar.
+    `system_prompt` allows a custom system prompt (None = use default).
+    `duration_setting` controls target length: 'short' (2-5 min), 'medium' (6-10 min), 'long' (11-20 min).
     Returns the podcast row dict (status 'ready' or 'error').
     """
     cfg = get_settings()
     hosts = get_hosts(cfg)
     use_provider = (provider or cfg.tts_provider or "").strip().lower()
+    # Per-episode host language override ({index: "en"|"fa"}) from the Podcast page.
+    if host_languages:
+        by_index = {h.index: h for h in hosts}
+        for idx, lang in host_languages.items():
+            if idx in by_index and lang in ("en", "fa") and lang != by_index[idx].language:
+                by_index[idx].language = lang
     meta = MetadataStore()
     try:
         pod = meta.create_podcast(
@@ -520,13 +753,29 @@ def generate_podcast(
             document_ids=document_ids,
         )
         pod_id = pod["id"]
-        meta.update_podcast(pod_id, status="generating", tts_provider=use_provider)
+        meta.update_podcast(
+            pod_id, status="generating", tts_provider=use_provider,
+            system_prompt=system_prompt, duration_setting=duration_setting,
+        )
 
         try:
             _notify_progress(progress, 0, 100, "summarize", "Summarizing selected documents…")
             context = _gather_context(document_ids, meta)
             _notify_progress(progress, 20, 100, "script", "Writing the episode script…")
-            script = _generate_script(title or "Untitled deep dive", context, hosts, model=model)
+            script = _generate_script(
+                title or "Untitled deep dive", context, hosts, model=model,
+                duration_setting=duration_setting, custom_prompt=system_prompt,
+            )
+
+            # Guarantee the script is in the hosts' language: if any host is
+            # Persian but the model wrote English, translate the whole script
+            # to Persian before TTS so the audio is actually Persian.
+            if hosts:
+                langs = [getattr(h, "language", "") or "en" for h in hosts]
+                tlang = max(set(langs), key=langs.count)
+                if tlang == "fa" and script and not _looks_persian(script):
+                    _notify_progress(progress, 25, 100, "script", "Translating episode into Persian (Farsi)…")
+                    script = _translate_script_to(script, "fa", model=model)
             meta.update_podcast(pod_id, script=script)
 
             lines = parse_script(script, hosts)
@@ -626,6 +875,31 @@ def preview_voice(
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
         return resp.content, "mp3"
+
+    if provider == "voicestudio":
+        if not voice:
+            raise PodcastError("No voice configured to preview. Set host voices in Settings → Podcast.")
+        base = _voicestudio_base(cfg)
+        # Resolve the host's language from the configured hosts so Persian
+        # previews are synthesized in Persian too.
+        language = ""
+        for h in hosts:
+            if h.voice == voice or (name and h.name == name):
+                language = h.language or ""
+                break
+        payload = {
+            "model": cfg.voicestudio_model.strip() or "omnivoice",
+            "input": sample_text,
+            "voice": voice,
+            "response_format": cfg.voicestudio_format.strip().lower() or "mp3",
+        }
+        if language:
+            payload["language"] = language
+        url = f"{base}/v1/audio/speech"
+        with get_client(timeout=60) as client:
+            resp = client.post(url, headers=_voicestudio_headers(cfg), json=payload)
+            resp.raise_for_status()
+        return resp.content, cfg.voicestudio_format.strip().lower() or "mp3"
 
     if provider == "cloudflare":
         account = cfg.cf_account_id.strip()

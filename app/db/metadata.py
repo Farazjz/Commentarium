@@ -77,6 +77,7 @@ class MetadataStore:
                 -- community/organisation metadata (Phase 8)
                 tags TEXT DEFAULT '[]',   -- JSON list of freeform tags
                 notes TEXT DEFAULT '',    -- freeform user notes
+                index_mode TEXT,          -- 'ocr' | 'direct' (mode used for the LAST index; NULL for pending)
                 created_at TEXT,
                 updated_at TEXT,
                 FOREIGN KEY(project_id) REFERENCES projects(id)
@@ -104,6 +105,8 @@ class MetadataStore:
                 audio_path TEXT,
                 duration_sec REAL DEFAULT 0,
                 tts_provider TEXT DEFAULT '',
+                system_prompt TEXT,       -- custom system prompt (NULL = use default)
+                duration_setting TEXT,    -- 'short' | 'medium' | 'long'
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -120,6 +123,7 @@ class MetadataStore:
             ("citation_verified", "INTEGER DEFAULT 0"),
             ("tags", "TEXT DEFAULT '[]'"),
             ("notes", "TEXT DEFAULT ''"),
+            ("index_mode", "TEXT"),
         ):
             try:
                 cur = self._conn.execute("PRAGMA table_info(documents)")
@@ -146,7 +150,11 @@ class MetadataStore:
                 logger.debug("metadata migration skipped for project column %s", col)
 
         # Column migrations for the podcasts table.
-        for col, coltype in (("tts_provider", "TEXT DEFAULT ''"),):
+        for col, coltype in (
+            ("tts_provider", "TEXT DEFAULT ''"),
+            ("system_prompt", "TEXT"),
+            ("duration_setting", "TEXT"),
+        ):
             try:
                 cur = self._conn.execute("PRAGMA table_info(podcasts)")
                 existing = {r[1] for r in cur.fetchall()}

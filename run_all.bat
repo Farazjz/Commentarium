@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 REM ============================================================
-REM  Thesis RAG - background launcher for the API + UI
+REM  Commentarium - background launcher for the API + UI
 REM  Starts the FastAPI backend and the Streamlit UI fully in the
 REM  BACKGROUND (no console windows) via a hidden VBS launcher,
 REM  then opens the browser. Use stop_all.bat (or the UI's

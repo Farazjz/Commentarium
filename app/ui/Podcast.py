@@ -17,6 +17,18 @@ from app.ui.helpers import banner, render_last_errors
 logger = logging.getLogger("app")
 
 
+def _delete_podcast(pod_id: str) -> None:
+    """Delete a podcast row and its audio file (missing audio ignored)."""
+    m = MetadataStore()
+    try:
+        p = m.get_podcast(pod_id)
+        if p and p.get("audio_path"):
+            Path(p["audio_path"]).unlink(missing_ok=True)
+        m.delete_podcast(pod_id)
+    finally:
+        m.close()
+
+
 banner(
     "🎙 Podcast studio",
     "NotebookLM-style deep dives: the app writes a multi-host conversation about "
@@ -73,6 +85,47 @@ title = st.text_input(
     key="pod_title",
 )
 
+# ---- Duration setting ----
+st.markdown("### ⏱ Episode duration")
+duration_label = st.radio(
+    "Target length",
+    ["Short (2–5 min)", "Medium (6–10 min)", "Long (11–20 min)"],
+    index=1,  # default Medium
+    horizontal=True,
+    key="pod_duration",
+    help="Approximate audio duration. Controls the script word count target.",
+)
+duration_setting = {"Short (2–5 min)": "short", "Medium (6–10 min)": "medium", "Long (11–20 min)": "long"}[duration_label]
+
+# ---- Custom system prompt ----
+st.markdown("### 🤖 System prompt (optional)")
+use_custom_prompt = st.checkbox(
+    "Use custom system prompt",
+    value=False,
+    key="pod_use_custom_prompt",
+    help="Enable to provide your own system prompt. Leave disabled to use the built-in default.",
+)
+custom_prompt = ""
+if use_custom_prompt:
+    custom_prompt = st.text_area(
+        "Custom system prompt",
+        value="",
+        height=180,
+        key="pod_custom_prompt",
+        help=(
+            "Write a custom system prompt that will be used to generate the episode script. "
+            "The prompt should describe the host(s), format rules, and any special instructions. "
+            "Variables available: {hosts}, {cast}, {line_format}."
+        ),
+    )
+    # Show a preview of the default prompt for reference
+    with st.expander("💡 Show default prompt (for reference)", expanded=False):
+        cfg = get_settings()
+        from app.podcast.hosts import get_hosts
+        from app.podcast.generate import _build_script_system
+        default_hosts = get_hosts(cfg)
+        st.code(_build_script_system(default_hosts), language="text")
+
 col_g, col_m = st.columns(2)
 gen = col_g.button("🎙 Generate podcast", use_container_width=True)
 if col_m.button("↻ Refresh list", use_container_width=True):
@@ -80,6 +133,7 @@ if col_m.button("↻ Refresh list", use_container_width=True):
 
 cfg = get_settings()
 provider_override = ""
+lang_map: dict[int, str] = {}
 if cfg.tts_provider == "disabled":
     st.caption("ℹ️ TTS is **disabled** (Settings). Generating will save a transcript only.")
 else:
@@ -88,6 +142,7 @@ else:
         "gateway-edge-tts": f"🌐 Gateway edge-tts → `{(cfg.gateway_tts_url or cfg.tts_api_url) or '(not set)'}`",
         "cloudflare": "☁️ Cloudflare Workers AI",
         "google": "🔎 Google Cloud TTS",
+        "voicestudio": "🎙 VoiceStudio (local server)",
         "edge-tts": "🎙 edge-tts (free MP3, internet)",
     }
     from app.podcast.hosts import PROVIDER_LABELS, get_hosts
@@ -104,6 +159,21 @@ else:
         key="pod_provider_override",
     )
     provider_override = "" if override_choice.startswith("(use") else override_choice
+
+    # ---- per-host episode language (overrides the configured host language) ----
+    from app.podcast.hosts import LANGUAGES
+    lang_cols = st.columns(len(hosts))
+    lang_map: dict[int, str] = {}
+    for col, host in zip(lang_cols, hosts):
+        with col:
+            lang_map[host.index] = col.selectbox(
+                f"{host.name} — language",
+                list(LANGUAGES),
+                index=LANGUAGES.index(host.language) if host.language in LANGUAGES else 0,
+                key=f"pod_host_lang_{host.index}",
+                format_func=lambda code: {"en": "English", "fa": "فارسی (Farsi)"}.get(code, code),
+                help="Dialogue language for this host in this episode: drives the script language and the language sent to VoiceStudio (en or fa).",
+            )
 
     # ---- voice previews -----------------------------------------------
     st.markdown("**🔊 Preview voices** — hear each host before you generate.")
@@ -131,7 +201,10 @@ if gen:
     if not picked:
         st.error("Pick at least one document first.")
     else:
-        from app.podcast.generate import generate_podcast
+        import importlib
+        import app.podcast.generate as pod_gen
+        importlib.reload(pod_gen)
+        generate_podcast = pod_gen.generate_podcast
 
         progress_bar = st.progress(0.0, text="Starting…")
         status_text = st.empty()
@@ -140,12 +213,18 @@ if gen:
             pct = min(100, max(0, int(100 * done / max(total, 1)))) / 100
             progress_bar.progress(pct, text=message or action)
 
+        # Only pass custom prompt if the user explicitly checked the box and typed content
+        eff_custom_prompt = custom_prompt.strip() if (use_custom_prompt and custom_prompt.strip()) else None
+
         try:
             pod = generate_podcast(
                 project_id=sel_id,
                 document_ids=picked,
                 title=title.strip() or "Untitled deep dive",
                 provider=provider_override or None,
+                system_prompt=eff_custom_prompt,
+                duration_setting=duration_setting,
+                host_languages=lang_map,
                 progress=_on_progress,
             )
         except Exception as exc:  # noqa: BLE001
@@ -182,14 +261,25 @@ for pod in pods:
             "ready": "✅", "error": "❌", "generating": "🔄", "pending": "⏳",
         }.get(pod["status"], "❓")
         st.markdown(f"**{pod['title']}** {status_icon}")
+        # Show duration setting and custom prompt indicator
+        ds = pod.get("duration_setting") or "medium"
+        ds_label = {"short": "Short (2–5 min)", "medium": "Medium (6–10 min)", "long": "Long (11–20 min)"}.get(ds, ds)
+        has_custom = "🤖 Custom prompt" if pod.get("system_prompt") else "📋 Default prompt"
         st.caption(
-            f"{len(pod.get('document_ids', []))} paper(s) · created {pod['created_at'][:16]}"
+            f"{len(pod.get('document_ids', []))} paper(s) · {ds_label} · {has_custom} · created {pod['created_at'][:16]}"
         )
         if pod["status"] == "error":
             st.caption(f"⚠️ {pod.get('error')}")
+            c_del = st.button("🗑 Delete", key=f"del_pod_{pod['id']}_err", use_container_width=False)
+            if c_del:
+                _delete_podcast(pod["id"])
+                st.rerun()
             continue
         if pod["status"] != "ready":
             st.caption("_Still generating… refresh to check._")
+            if st.button("🗑 Delete", key=f"del_pod_{pod['id']}_gen", use_container_width=False):
+                _delete_podcast(pod["id"])
+                st.rerun()
             continue
 
         # audio
@@ -207,7 +297,7 @@ for pod in pods:
             with st.expander("📝 Read transcript", expanded=False):
                 st.markdown(pod["script"])
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         if pod.get("audio_path") and Path(pod["audio_path"]).exists():
             try:
                 data = Path(pod["audio_path"]).read_bytes()
@@ -228,15 +318,35 @@ for pod in pods:
                 mime="text/markdown",
                 key=f"dl_txt_{pod['id']}",
             )
-        if c3.button("🗑 Delete", key=f"del_pod_{pod['id']}"):
-            m = MetadataStore()
+        # Regenerate button (uses stored settings: system_prompt, duration_setting)
+        if c3.button("🔄 Regenerate", key=f"regen_pod_{pod['id']}", use_container_width=True):
+            import importlib
+            import app.podcast.generate as pod_gen
+            importlib.reload(pod_gen)
+            generate_podcast = pod_gen.generate_podcast
+
+            prog = st.progress(0.0, text="Regenerating…")
+            def _rp(done, total, action, message):
+                pct = min(100, max(0, int(100 * done / max(total, 1)))) / 100
+                prog.progress(pct, text=message or action)
             try:
-                p = m.get_podcast(pod["id"])
-                if p and p.get("audio_path"):
-                    Path(p["audio_path"]).unlink(missing_ok=True)
-                m.delete_podcast(pod["id"])
-            finally:
-                m.close()
+                # Use stored settings unless user wants to override
+                new_pod = generate_podcast(
+                    project_id=pod["project_id"],
+                    document_ids=pod["document_ids"],
+                    title=pod["title"],
+                    system_prompt=pod.get("system_prompt") or None,
+                    duration_setting=pod.get("duration_setting") or "medium",
+                    progress=_rp,
+                )
+                prog.progress(1.0, text="Done ✅")
+                st.success("Regenerated!")
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                prog.empty()
+                st.error(f"Regenerate failed: {exc}")
+        if c4.button("🗑 Delete", key=f"del_pod_{pod['id']}", use_container_width=True):
+            _delete_podcast(pod["id"])
             st.success("Deleted episode.")
             st.rerun()
 

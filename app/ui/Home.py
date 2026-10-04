@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.ui.helpers import banner, render_last_errors
 
 banner(
-    "🧬 Thesis RAG System",
+    "🧬 Commentarium",
     "A local research assistant: upload papers, chat over them, and export accurate citations.",
 )
 

@@ -62,7 +62,7 @@ def setup_logging(log_level: str | None = None) -> None:
     root.setLevel(level)
 
     # Avoid duplicate handlers on repeated calls
-    if getattr(root, "_thesis_rag_configured", False):
+    if getattr(root, "_commentarium_configured", False):
         root.setLevel(level)
         return
 
@@ -93,6 +93,6 @@ def setup_logging(log_level: str | None = None) -> None:
     ring_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
     root.addHandler(ring_handler)
 
-    root._thesis_rag_configured = True  # type: ignore[attr-defined]
+    root._commentarium_configured = True  # type: ignore[attr-defined]
 
     logging.getLogger("app").info("Logging initialised  level=%s  file=%s", level, log_file)

@@ -1,4 +1,6 @@
-# 🧬 Thesis RAG
+# 🧬 Commentarium
+
+> **More info & full documentation:** [github.com/Farazjz/Commentarium](https://github.com/Farazjz/Commentarium)
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
@@ -29,9 +31,10 @@ entirely on your machine, using your own **OpenRouter** API key.
   and a study **Quiz**, all cached so they don't burn tokens twice
 - 🎙️ **Podcast studio (NotebookLM-style)** — select papers, and the app writes a
   two-host "deep dive" conversation and reads it aloud as an MP3. Choose the TTS:
-  **edge-tts** (free, no key) or **any OpenAI-compatible `/v1/audio/speech`
+  **edge-tts** (free, no key), **VoiceStudio** (locally running voice
+  cloning/design server), or **any OpenAI-compatible `/v1/audio/speech`
   server** (Kokoro / Silero / Piper / vLLM — fully local & private), with
-  per-host voice ids and model/format controls (transcript-only fallback)
+  per-host voice ids / languages and model/format controls (transcript-only fallback)
 - 🛡️ **Embedding-dim guard** — prevents silent corruption if you change
   embedding models; Projects page shows corpus-model identity and warns on mismatch
 - 🪵 **Log viewer** — live, filterable logs (file + console + in-app) for debugging
@@ -188,10 +191,13 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
   summaries (Brief / Detailed / Key points / TL;DR / Quiz, cached), per-project
   model & temperature overrides, a global temperature setting, document `tags`
   (filterable) + freeform `notes`, and a **Podcast studio** that writes a
-  two-host "deep dive" script over selected papers and reads it aloud with
-  edge-tts (MP3 download; transcript-only fallback). OCR also gains the
-  **PaddleOCR-VL-1.6** and **TeleOCR** vision-language backends (local VLM
-  server first, gateway fallback).
+  multi-host "deep dive" script over selected papers and reads it aloud (MP3
+  download; transcript-only fallback), with TTS via **edge-tts**, a local
+  **VoiceStudio** server (voice cloning/design, per-host languages `en`/`fa`,
+  dropdown voice picking, connection test), or any OpenAI-compatible
+  `/v1/audio/speech` endpoint. Episode list supports **delete** (incl. failed /
+  in-progress episodes). OCR also gains the **PaddleOCR-VL-1.6** and **TeleOCR**
+  vision-language backends (local VLM server first, gateway fallback).
 
 ## 📝 Notes & troubleshooting
 
@@ -217,6 +223,19 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
     private (e.g. Kokoro, Silero, Piper, vLLM). Set the URL, model id, and the two
     **voice ids** your server knows (some servers expose `/v1/audio/voices`; the
     app validates yours against it). A different voice per host makes them distinct.
+  - **VoiceStudio** uses a locally running [VoiceStudio](https://github.com/debpalash/VoiceStudio)
+    backend (default `http://localhost:3900`) — fully local voice cloning/design.
+    In Settings, **Load voices** lists your cloned profiles / OpenAI aliases and
+    you pick each host's voice. Each host's dialogue **language** (`en`/`fa`) is
+    chosen per-episode on the Podcast page — it drives both the script language
+    and the language sent to VoiceStudio synthesis. Keep the VoiceStudio app
+    running while generating (mp3/opus/aac output needs VoiceStudio's bundled
+    ffmpeg; wav/flac/pcm do not). Optionally set a Bearer API key when VoiceStudio
+    runs on another machine. If the script model still writes English for a
+    Persian (`fa`) episode, the app **auto-translates the entire script to
+    Persian** before it reaches VoiceStudio, so the audio is guaranteed Persian.
+  - Every episode has a **🗑 Delete** button (including failed or still-generating
+    ones) that removes the episode and its audio file.
   - If TTS fails or is disabled, the podcast is still generated and saved as a
     transcript.
 - All logs are stored in `data/logs/app.log` (rotating). Every UI page shows

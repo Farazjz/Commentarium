@@ -40,8 +40,20 @@ def _set_status(meta: MetadataStore, doc_id: str, status: str, error: str | None
     meta.update_document(doc_id, **fields)
 
 
-def ingest_document(document_id: str, *, reindex: bool = False) -> dict:
+def ingest_document(
+    document_id: str,
+    *,
+    reindex: bool = False,
+    ocr: bool | None = None,
+) -> dict:
     """Parse, chunk, embed and store a document's chunks.
+
+    `ocr` selects the indexing mode:
+      - ``True``  → OCR + indexing. Scanned/image PDF pages are OCR'd before
+                    embedding (best for old/scan/image-only PDFs).
+      - ``False`` → Direct indexing. Text is extracted only (fast; ideal for
+                    Word files, text/Markdown files, and text-based PDFs).
+      - ``None``  → use the configured default (`cfg.default_ocr`).
 
     Returns a summary dict with counts and status.
     """
@@ -57,12 +69,15 @@ def ingest_document(document_id: str, *, reindex: bool = False) -> dict:
         if not stored_path.exists():
             raise FileNotFoundError(f"Stored file missing: {stored_path}")
 
+        # Decide the indexing mode: explicit choice beats the configured default.
+        use_ocr = cfg.default_ocr if ocr is None else bool(ocr)
+
         # Clean up any previous chunks on reindex
         if reindex:
             vs.delete_document(document_id)
 
         _set_status(meta, document_id, "parsing")
-        pages, file_type = parse_file(stored_path)
+        pages, file_type = parse_file(stored_path, use_ocr=use_ocr)
 
         _set_status(meta, document_id, "chunking", None)
         chunks = chunk_pages(pages)
@@ -108,13 +123,14 @@ def ingest_document(document_id: str, *, reindex: bool = False) -> dict:
         except Exception:  # noqa: BLE001
             logger.debug("Failed to record embedding identity", exc_info=True)
 
-        # update doc: page count, status, file type
+        # update doc: page count, status, file type, indexing mode used
         meta.update_document(
             document_id,
             page_count=max((p["page"] for p in pages), default=0) + 1,
             file_type=file_type,
             status="indexed",
             error=None,
+            index_mode="ocr" if use_ocr else "direct",
         )
 
         summary = {

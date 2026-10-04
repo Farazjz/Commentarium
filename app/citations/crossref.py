@@ -121,7 +121,7 @@ def search_by_title(
     params: dict = {"query.bibliographic": q, "rows": max(limit, 1)}
     try:
         r = get(CROSSREF_API, params=params, timeout=timeout,
-                headers={"User-Agent": "ThesisRAG/1.0 (mailto:dev@example.com)"})
+                headers={"User-Agent": "Commentarium/1.0 (mailto:deep.ai.coder@atomicmail.io)"})
         r.raise_for_status()
         items = r.json()["message"]["items"]
     except Exception as exc:  # noqa: BLE001

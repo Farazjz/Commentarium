@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 REM ============================================================
-REM  Thesis RAG - stop background API + UI servers
+REM  Commentarium - stop background API + UI servers
 REM  Kills whatever is listening on the configured API/UI ports.
 REM  Safe to run even if nothing is running.
 REM ============================================================
@@ -20,7 +20,7 @@ if exist "%~dp0.env" (
 for /f "delims=" %%P in ("%API_PORT%") do set "API_PORT=%%P"
 for /f "delims=" %%P in ("%UI_PORT%") do set "UI_PORT=%%P"
 
-echo Stopping Thesis RAG servers (ports %API_PORT% / %UI_PORT%)...
+echo Stopping Commentarium servers (ports %API_PORT% / %UI_PORT%)...
 set "KILLED="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%API_PORT% .*LISTENING" /c:":%UI_PORT% .*LISTENING"') do (
     if not "%%P"=="0" (

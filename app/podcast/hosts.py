@@ -12,17 +12,22 @@ from dataclasses import dataclass
 from app.config import Settings, get_settings
 
 # Provider keys shown in settings / stored in TTS_PROVIDER
-PROVIDERS = ("localhost", "gateway-edge-tts", "cloudflare", "google", "edge-tts", "disabled")
+PROVIDERS = ("localhost", "gateway-edge-tts", "cloudflare", "google", "edge-tts", "voicestudio", "disabled")
 PROVIDER_LABELS = {
     "localhost": "🌐 Localhost API (OpenAI-compatible)",
     "gateway-edge-tts": "🌐 Local gateway · edge-tts voices (9Router)",
     "cloudflare": "☁️ Cloudflare Workers AI",
     "google": "🔎 Google Cloud TTS API",
     "edge-tts": "🎙 edge-tts (free, internet)",
+    "voicestudio": "🎙 VoiceStudio (local server)",
     "disabled": "🚫 Disabled (transcript only)",
 }
 
 GENDERS = ("female", "male", "neutral")
+
+# Host dialogue / speaking languages (ISO 639-1). VoiceStudio is multilingual;
+# the script is written in and synthesized for each host's chosen language.
+LANGUAGES = ("en", "fa")
 
 
 @dataclass
@@ -33,6 +38,7 @@ class Host:
     name: str
     gender: str         # female | male | neutral
     voice: str          # voice id for the active TTS provider
+    language: str = "en"  # ISO 639-1 language code for dialogue (VoiceStudio)
 
     @property
     def label(self) -> str:
@@ -42,6 +48,11 @@ class Host:
 def _clean_gender(g: str | None) -> str:
     g = (g or "").strip().lower()
     return g if g in GENDERS else "female"
+
+
+def _clean_language(lang: str | None) -> str:
+    l = (lang or "").strip().lower()
+    return l if l in LANGUAGES else "en"
 
 
 def get_hosts(cfg: Settings | None = None) -> list[Host]:
@@ -68,6 +79,7 @@ def get_hosts(cfg: Settings | None = None) -> list[Host]:
         name = str(getattr(cfg, f"podcast_host_{i}_name", "") or "").strip()
         gender = _clean_gender(getattr(cfg, f"podcast_host_{i}_gender", ""))
         voice = str(getattr(cfg, f"podcast_host_{i}_voice", "") or "").strip()
+        language = _clean_language(getattr(cfg, f"podcast_host_{i}_language", ""))
         # legacy mapping: host1 = old A (JennyFemale-ish), host2 = old B
         if fell_back and not voice:
             voice = legacy_a if i == 1 else (legacy_b if i == 2 else "")
@@ -75,7 +87,7 @@ def get_hosts(cfg: Settings | None = None) -> list[Host]:
             name = name or f"Host {i}"
         except Exception:  # noqa: BLE001
             name = f"Host {i}"
-        hosts.append(Host(index=i, name=name, gender=gender, voice=voice))
+        hosts.append(Host(index=i, name=name, gender=gender, voice=voice, language=language))
     return hosts
 
 

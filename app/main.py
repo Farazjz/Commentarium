@@ -1,4 +1,4 @@
-"""FastAPI application – the API layer of the Thesis RAG System."""
+"""FastAPI application – the API layer of the Commentarium System."""
 from __future__ import annotations
 
 import logging
@@ -28,9 +28,9 @@ def _chat_store() -> ChatStore:
 async def lifespan(app: FastAPI):
     cfg = get_settings()
     setup_logging(cfg.log_level)
-    logging.getLogger("app").info("Thesis RAG API starting  host=%s port=%d", cfg.host, cfg.port)
+    logging.getLogger("app").info("Commentarium API starting  host=%s port=%d", cfg.host, cfg.port)
     yield
-    logging.getLogger("app").info("Thesis RAG API shutting down")
+    logging.getLogger("app").info("Commentarium API shutting down")
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="Thesis RAG API",
+    title="Commentarium API",
     description="RAG system for thesis research – upload PDFs & Word docs, chat with them, get accurate citations.",
     version="0.1.0",
     lifespan=lifespan,
@@ -104,6 +104,9 @@ async def settings_summary():
         "tts_api_url": cfg.tts_api_url,
         "tts_api_model": cfg.tts_api_model,
         "tts_api_format": cfg.tts_api_format,
+        "voicestudio_url": cfg.voicestudio_url,
+        "voicestudio_model": cfg.voicestudio_model,
+        "voicestudio_format": cfg.voicestudio_format,
         "cf_model": cfg.cf_model,
         "google_language_code": cfg.google_language_code,
         "podcast_num_hosts": cfg.podcast_num_hosts,
@@ -267,15 +270,29 @@ async def list_documents(project_id: str):
 async def upload_document(project_id: str, file: UploadFile = File(...)):
     """Store an uploaded file and register it. Does NOT ingest yet."""
     content = await file.read()
-    doc = store_upload(project_id, content, file.filename or "unnamed")
-    return doc
+    from app.ingest.parsers import ParseError
+
+    try:
+        doc = store_upload(project_id, content, file.filename or "unnamed")
+        return doc
+    except ParseError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Upload failed for %s", project_id)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @app.post("/documents/{document_id}/ingest")
-async def ingest_endpoint(document_id: str, reindex: bool = False):
-    """Run the full parsing/chunking/embedding pipeline for a document."""
+async def ingest_endpoint(document_id: str, reindex: bool = False, ocr: bool | None = None):
+    """Run the full parsing/chunking/embedding pipeline for a document.
+
+    `ocr` selects the indexing mode: True = OCR + indexing (scanned pages OCR'd),
+    False = direct embedding (text only, fastest for Word/text files),
+    omitted/None = use the configured default. Deterministic in that a given
+    (ocr, reindex) combination reproduces the exact same chunk set.
+    """
     try:
-        summary = ingest_document(document_id, reindex=reindex)
+        summary = ingest_document(document_id, reindex=reindex, ocr=ocr)
         return summary
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ingest failed for %s", document_id)
@@ -283,12 +300,16 @@ async def ingest_endpoint(document_id: str, reindex: bool = False):
 
 
 @app.post("/projects/{project_id}/upload-and-ingest")
-async def upload_and_ingest(project_id: str, file: UploadFile = File(...)):
-    """Store an upload and immediately ingest it."""
+async def upload_and_ingest(project_id: str, file: UploadFile = File(...), ocr: bool | None = None):
+    """Store an upload and immediately ingest it with the chosen mode."""
     content = await file.read()
-    doc = store_upload(project_id, content, file.filename or "unnamed")
     try:
-        summary = ingest_document(doc["id"])
+        doc = store_upload(project_id, content, file.filename or "unnamed")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Upload+ingest failed")
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    try:
+        summary = ingest_document(doc["id"], ocr=ocr)
         summary["document"] = doc
         return summary
     except Exception as exc:  # noqa: BLE001
@@ -599,6 +620,9 @@ async def create_podcast(body: dict):
     document_ids = body.get("document_ids") or []
     title = (body.get("title") or "").strip() or "Untitled deep dive"
     model = body.get("model") or None
+    provider = body.get("provider") or None
+    system_prompt = body.get("system_prompt") or None
+    duration_setting = body.get("duration_setting") or "medium"
     if not project_id:
         return JSONResponse(status_code=400, content={"error": "project_id required"})
     if not document_ids:
@@ -606,7 +630,8 @@ async def create_podcast(body: dict):
     try:
         pod = generate_podcast(
             project_id=project_id, document_ids=document_ids,
-            title=title, model=model,
+            title=title, model=model, provider=provider,
+            system_prompt=system_prompt, duration_setting=duration_setting,
         )
         return pod
     except PodcastError as exc:
@@ -629,7 +654,10 @@ async def get_podcast(podcast_id: str):
 
 
 @app.post("/podcasts/{podcast_id}/regenerate")
-async def regenerate_podcast(podcast_id: str, model: str = ""):
+async def regenerate_podcast(
+    podcast_id: str, model: str = "", provider: str | None = None,
+    system_prompt: str | None = None, duration_setting: str | None = None
+):
     """Regenerate a podcast's script (and audio) for its stored documents."""
     from app.podcast.generate import generate_podcast
 
@@ -641,11 +669,17 @@ async def regenerate_podcast(podcast_id: str, model: str = ""):
         # consume the old audio file
         if pod.get("audio_path"):
             Path(pod["audio_path"]).unlink(missing_ok=True)
+        # Use stored settings unless overridden
+        sp = system_prompt if system_prompt is not None else pod.get("system_prompt")
+        ds = duration_setting if duration_setting is not None else pod.get("duration_setting") or "medium"
         new_pod = generate_podcast(
             project_id=pod["project_id"],
             document_ids=pod["document_ids"],
             title=pod["title"] + " (regenerated)",
             model=model or None,
+            provider=provider or None,
+            system_prompt=sp,
+            duration_setting=ds,
         )
         return new_pod
     finally:

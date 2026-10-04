@@ -1,4 +1,4 @@
-"""Streamlit UI for the Thesis RAG System.
+"""Streamlit UI for the Commentarium System.
 
 Pages are kept in the `pages/` directory (each a single script). This file
 is the shared navigation/entry point that applies common styling.
@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.logging_setup import setup_logging
 
 st.set_page_config(
-    page_title="Thesis RAG",
+    page_title="Commentarium",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -30,7 +30,7 @@ st.set_page_config(
 # Ensure logging is configured (cheap no-op after first call)
 setup_logging()
 
-st.sidebar.title("🧬 Thesis RAG")
+st.sidebar.title("🧬 Commentarium")
 st.sidebar.caption(
     "Chat with your research papers.\n"
     "Upload PDF/Word files, ask questions, and get cited answers."

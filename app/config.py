@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # --- OCR backend: "tesseract" | "vision" | "paddleocr-vl" | "teleocr" | "disabled" ---
     ocr_backend: str = "tesseract"
     tesseract_cmd: str = ""
+    # Default indexing mode when a document is ingested without an explicit
+    # mode: True = OCR + indexing (scanned pages OCR'd), False = direct
+    # embedding (text-only, no OCR). Per-document / per-upload overrides win.
+    default_ocr: bool = True
     # Vision-Language OCR backends: a local OpenAI-compatible VLM server URL
     # (PaddlePaddle `mllm_server`, vLLM, SGLang, LM Studio...) OR empty to fall
     # back to the configured chat gateway's vision model.
@@ -97,6 +101,17 @@ class Settings(BaseSettings):
     tts_api_model: str = ""          # e.g. "tts-1", "kokoro", "silero" ... (default "tts-1")
     tts_api_format: str = "mp3"      # "mp3" | "wav" | "opus" | "aac" | "flac"
 
+    # --- VoiceStudio local server (tts_provider="voicestudio") ---
+    # VoiceStudio (https://github.com/debpalash/VoiceStudio) exposes an
+    # OpenAI-compatible /v1/audio/speech + /v1/audio/voices API on the local
+    # backend (default http://localhost:3900). Loopback needs no key; set an
+    # API key (or share PIN) only when talking to a VoiceStudio on another
+    # machine. Each host's voice is a VoiceStudio voice-profile id.
+    voicestudio_url: str = "http://localhost:3900"
+    voicestudio_api_key: str = ""
+    voicestudio_model: str = ""       # engine id; empty -> VoiceStudio's active engine
+    voicestudio_format: str = "mp3"   # "mp3" | "wav" | "opus" | "aac" | "flac" | "pcm"
+
     # --- Gateway edge-tts (tts_provider="gateway-edge-tts") ---
     # Any OpenAI-compatible /v1/audio/speech server that serves edge-tts voices
     # as model ids like "edge-tts/en-US-JennyNeural" (e.g. the 9Router gateway).
@@ -121,12 +136,15 @@ class Settings(BaseSettings):
     podcast_host_1_name: str = "Alice"
     podcast_host_1_gender: str = "female"
     podcast_host_1_voice: str = "en-US-JennyNeural"
+    podcast_host_1_language: str = "en"
     podcast_host_2_name: str = "Sam"
     podcast_host_2_gender: str = "male"
     podcast_host_2_voice: str = "en-US-ChristopherNeural"
+    podcast_host_2_language: str = "en"
     podcast_host_3_name: str = "Priya"
     podcast_host_3_gender: str = "female"
     podcast_host_3_voice: str = "en-US-AriaNeural"
+    podcast_host_3_language: str = "en"
 
     @property
     def resolved_data_dir(self) -> Path:

@@ -13,6 +13,7 @@ import logging
 
 import streamlit as st
 
+from app.config import get_settings
 from app.db.metadata import MetadataStore
 from app.db.vectorstore import VectorStore
 from app.ingest.pipeline import ingest_document, store_upload
@@ -163,6 +164,22 @@ def _render_project_cards() -> None:
                     accept_multiple_files=True,
                     key=f"upload_{p['id']}",
                 )
+                # Indexing mode: OCR+index vs direct embed. Applied to ALL files
+                # in this batch. DOCX/TXT/MD are unaffected (already have text).
+                up_mode = st.radio(
+                    "Indexing mode for this batch",
+                    ["OCR + index (handles scanned/pdf-image pages)",
+                     "Direct index (text only, faster)"],
+                    index=0 if get_settings().default_ocr else 1,
+                    key=f"up_mode_{p['id']}",
+                    horizontal=True,
+                    help="OCR + index: image/scanned pages are OCR'd before "
+                         "embedding (best for old/scan-heavy PDFs). Direct index: "
+                         "extract text only, no OCR (fastest for Word/text files "
+                         "and text-based PDFs). You can still re-index a "
+                         "document with the other mode later.",
+                )
+                up_ocr = up_mode.startswith("OCR")
                 up_submit = st.button(
                     "⬆ Upload & index", key=f"up_btn_{p['id']}",
                     use_container_width=True,
@@ -175,12 +192,13 @@ def _render_project_cards() -> None:
                             if len(data) == 0:
                                 st.error(f"**{uf.name}** is empty — skipped.")
                                 continue
-                            with st.spinner(f"Ingesting {uf.name}…"):
+                            with st.spinner(f"Ingesting {uf.name} ({'OCR' if up_ocr else 'direct'})…"):
                                 doc = store_upload(p["id"], data, uf.name)
-                                s = ingest_document(doc["id"])
+                                s = ingest_document(doc["id"], ocr=up_ocr)
                             st.success(
                                 f"Uploaded **{uf.name}** → "
-                                f"{s['chunks']} chunks / {s['pages']} pages."
+                                f"{s['chunks']} chunks / {s['pages']} pages "
+                                f"({ 'OCR' if up_ocr else 'direct' } index)."
                             )
                         except Exception as exc:  # noqa: BLE001
                             st.error(f"**{uf.name}** upload/ingest failed: {exc}")
@@ -206,10 +224,19 @@ def _render_doc_table(project_id: str, docs: list[dict]) -> None:
             with st.container(border=True):
                 c1, c2 = st.columns([3, 1])
                 with c1:
-                    st.markdown(f"**{d['filename']}** {_status_icon(status)}")
+                    # Badge showing which indexing mode produced the current
+                    # chunk set (set on the last successful re-index / ingest).
+                    index_mode = d.get("index_mode")
+                    badge = ""
+                    if index_mode == "ocr":
+                        badge = " 🤖 **OCR**"
+                    elif index_mode == "direct":
+                        badge = " ⚡ **Direct**"
+                    st.markdown(f"**{d['filename']}**{badge} {_status_icon(status)}")
                     st.caption(
                         f"{d['file_type'].upper()} · {pages} page(s) · {nchunks} chunk(s) "
                         f"· {status}"
+                        + (f" · {index_mode} index" if index_mode else "")
                     )
                     # tags
                     try:
@@ -232,8 +259,20 @@ def _render_doc_table(project_id: str, docs: list[dict]) -> None:
                     _render_summary_panel(d["id"], d["filename"], sum_key)
                 if reidx:
                     try:
-                        with st.spinner(f"Re-indexing {d['filename']}…"):
-                            s = ingest_document(d["id"], reindex=True)
+                        # Choose re-index mode: direct vs OCR+index.
+                        re_mode = st.radio(
+                            "Re-index mode",
+                            ["Direct (text only)", "OCR + index"],
+                            index=0,
+                            key=f"re_mode_{d['id']}",
+                            horizontal=True,
+                        )
+                        with st.spinner(f"Re-indexing {d['filename']} ("
+                                        f"{'OCR' if re_mode.startswith('OCR') else 'direct'})…"):
+                            s = ingest_document(
+                                d["id"], reindex=True,
+                                ocr=re_mode.startswith("OCR"),
+                            )
                         st.success(f"Re-indexed: {s['chunks']} chunks / {s['pages']} pages")
                         st.rerun()
                     except Exception as exc:  # noqa: BLE001
