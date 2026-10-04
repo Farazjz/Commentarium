@@ -8,7 +8,9 @@ answers with **page-level citations** in APA 7 or Vancouver style.
 
 Built as a lean, thesis-focused alternative to
 [open-notebook](https://github.com/lfnovo/open-notebook) — privacy-first, runs
-entirely on your machine, using your own **OpenRouter** API key.
+entirely on your machine, using your own **OpenAI-compatible** API key — any
+online router (OpenRouter, Gemini, OpenAI…) **or a fully local AI** (LM Studio,
+Ollama, vLLM, LiteLLM…).
 
 ---
 
@@ -16,8 +18,10 @@ entirely on your machine, using your own **OpenRouter** API key.
 
 - 🔒 **100% local & private** — your files never leave your computer
 - 📄 Upload **PDF** and **DOCX** files
-- 🤖 Bring your own AI — paste any **OpenRouter** API key, pick any **chat** model
-  and **embedding** backend (local `sentence-transformers` is free & private)
+- 🤖 Bring your own AI — paste any **OpenAI-compatible** key from an online
+  router **or a local server** (OpenRouter, LiteLLM, LM Studio, Ollama via its
+  OpenAI bridge, vLLM…), pick any **chat** model and **embedding** backend
+  (local `sentence-transformers` is free & private)
 - 🗂️ **Projects** to organise research (e.g. per thesis chapter)
 - 💬 **Chat** over your documents, with grounded, page-level citations
   + resolved APA 7 / Vancouver references shown with each answer
@@ -58,14 +62,15 @@ Your files (PDF/DOCX)
           ▼
 ┌─────────────────────┐        ┌─────────────────────┐
 │  Answer generation   │ ─────▶ │  Citation layer      │
-│  (OpenRouter)        │        │  APA 7 / Vancouver   │
+│  (your AI gateway)   │        │  APA 7 / Vancouver   │
 └─────────────────────┘        └─────────────────────┘
    answer + in-text markers → resolved to real Reference list
 ```
 
 - **Backend:** FastAPI
 - **Frontend:** Streamlit
-- **AI:** OpenRouter / your gateway (OpenAI-compatible SDK)
+- **AI:** your OpenAI-compatible chat gateway — online router (OpenRouter,
+  Gemini…) or fully local (LM Studio, vLLM, Ollama proxy, LiteLLM…)
 - **Embeddings:** sentence-transformers (local) or your gateway's `/embeddings`
 - **Vector store:** custom lightweight NumPy + SQLite (no C-compiler needed)
 - **Metadata store:** SQLite (projects, documents, citation metadata)
@@ -89,18 +94,34 @@ pip install -r requirements.txt
 > have internet access (the default local model `BAAI/bge-small-en-v1.5` is
 > fetched from Hugging Face once).
 
-### 2. Configure API key
+### 2. Configure your AI provider
 
-Copy the template and paste your OpenRouter key (you can also do this in the UI):
+Commentarium talks to **any OpenAI-compatible chat API** — an online router or
+a server running locally on your machine. Copy the template (you can also do
+this in the UI):
 
 ```bash
 copy .env.example .env
 ```
 
-Then edit `.env` and set `OPENROUTER_API_KEY=sk-or-...`.
+**Option A — online router (e.g. OpenRouter).** Set a key in `.env`:
 
-Get a key at **https://openrouter.ai/keys** (one key gives you access to
+```
+OPENROUTER_API_KEY=sk-or-...
+```
+
+Get one at **https://openrouter.ai/keys** (a single key gives you access to
 literally thousands of models — Claude, Gemini, Llama, etc.).
+
+**Option B — fully local / offline.** No key needed. Point `OPENROUTER_BASE_URL`
+(and leave the key empty, or use your local server's key if it requires one) at
+the **OpenAI-compatible endpoint** of your local server — e.g. LM Studio
+(`http://127.0.0.1:1234/v1`), Ollama (`http://localhost:11434/v1`), vLLM, or a
+LiteLLM proxy. The Settings page in the UI can configure the same values.
+
+> **Embeddings** are separate and work the same way: `local` (free &
+> private `sentence-transformers`, no network), any OpenAI-compatible
+> `/embeddings` endpoint (online or local), or Cloudflare Workers AI.
 
 ### 3. Run the app
 
@@ -118,8 +139,9 @@ Then open **http://localhost:8501** in your browser.
 
 ### 4. First steps in the UI
 
-1. **⚙️ Settings** → paste your OpenRouter key → **Test connection** → pick your
-   chat model. Set OCR backends (incl. PaddleOCR-VL / TeleOCR) and podcast voices here.
+1. **⚙️ Settings** → paste your AI/gateway key → **Test connection** → pick your
+   chat model. Local setups: point the base URL at your local server instead of
+   using a key. Set OCR backends (incl. PaddleOCR-VL / TeleOCR) and podcast voices here.
 2. **📁 Projects & Files** → create a project, upload your PDF/Word papers, add
    tags/notes, and generate summaries (Brief/Key points/Quiz…).
 3. **💬 Chat** → ask questions; answers come with page-level citations. Set a
@@ -137,7 +159,7 @@ app/
   main.py               # FastAPI entry + endpoints (/health, /projects, /documents, /chat, /citations, /podcasts, ...)
   config.py             # .env settings, storage paths
   logging_setup.py      # rotating file + console + in-app log buffer
-  models_openrouter.py  # OpenRouter client (test connection, list models, chat, embeddings)
+  models_openrouter.py  # OpenAI-compatible provider client (test connection, list models, chat, embeddings)
   db/
     vectorstore.py      # NumPy + SQLite vector store (dimension guard, model identity)
     metadata.py         # SQLite projects/documents/citation metadata + tags/notes/summaries/podcasts
@@ -159,7 +181,7 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
   store with insert/search/delete + persistence.
 - ✅ **Phase 2 — Ingestion**: PDF/DOCX parsers (PyMuPDF / python-docx), OCR of
   scanned pages (Tesseract / vision), smart chunking with page + section
-  metadata, local & OpenRouter embedding backends, SQLite metadata store, and
+  metadata, local & OpenAI-compatible embedding backends, SQLite metadata store, and
   full project/document management (create project, upload, ingest, re-index,
   delete) with a working Streamlit **Projects & Files** page.
 - ✅ **Phase 3 — Chat + RAG**: query embedding + cosine retrieval (project
@@ -246,8 +268,9 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
 ## 🔒 Privacy
 
 Everything runs locally. Your API key is stored only in your local `.env` /
-database and used only to call OpenRouter. Your documents and embeddings never
-leave your machine.
+database and used only to call your chat gateway (OpenRouter or a fully local
+provider). With a fully local setup nothing ever leaves your machine. Your
+documents and embeddings never leave your machine.
 
 ## 🙏 Acknowledgements
 
