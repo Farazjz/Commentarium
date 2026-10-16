@@ -39,6 +39,9 @@ Ollama, vLLM, LiteLLM…).
   cloning/design server), or **any OpenAI-compatible `/v1/audio/speech`
   server** (Kokoro / Silero / Piper / vLLM — fully local & private), with
   per-host voice ids / languages and model/format controls (transcript-only fallback)
+- 🔍 **OCR to Markdown** — stand-alone page that turns scanned PDFs and images
+  into clean Markdown files with per-page structure, using the OCR backend of
+  your choice (live preview + download)
 - 🛡️ **Embedding-dim guard** — prevents silent corruption if you change
   embedding models; Projects page shows corpus-model identity and warns on mismatch
 - 🪵 **Log viewer** — live, filterable logs (file + console + in-app) for debugging
@@ -125,17 +128,32 @@ LiteLLM proxy. The Settings page in the UI can configure the same values.
 
 ### 3. Run the app
 
-Open **two terminals** from the project folder:
+Double-click **`run.bat`** in the project folder (or run it from a terminal):
 
 ```bash
-# Terminal 1 — the UI
-run_ui.bat        # (or: streamlit run app/ui/main.py --server.port 8501)
-
-# Terminal 2 — the backend
-run_api.bat       # (or: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload)
+run.bat
 ```
 
-Then open **http://localhost:8501** in your browser.
+It starts the **FastAPI backend first**, then the **Streamlit UI** — both quietly
+in the background (no console windows) — waits for the API to come online, then
+opens your browser at **http://localhost:8501** automatically. Stop both servers
+later with **stop_all.bat**, or the "Exit & shut down servers" button in the UI
+sidebar.
+
+Ports come from `.env` (`PORT` for the API, `UI_PORT` for the UI; defaults
+8000 / 8501).
+
+> Prefer visible consoles / manual control? Run each server yourself:
+>
+> ```bash
+> # Terminal 1 — the backend
+> python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+>
+> # Terminal 2 — the UI (in a second terminal)
+> streamlit run app/ui/main.py --server.port 8501 --server.address 127.0.0.1 --server.headless true
+> ```
+>
+> Then open http://localhost:8501 in your browser.
 
 ### 4. First steps in the UI
 
@@ -147,8 +165,10 @@ Then open **http://localhost:8501** in your browser.
 3. **💬 Chat** → ask questions; answers come with page-level citations. Set a
    per-project model/temperature in the sidebar.
 4. **📝 Citations** → verify document metadata; export APA 7 / Vancouver.
-5. **🎙 Podcast studio** → select papers and generate an audio deep-dive (MP3).
-6. **🪵 Log Viewer** → debug any errors live.
+5. **🔍 OCR to Markdown** → upload PDFs or images, extract text via your chosen
+   OCR backend, and export clean Markdown files.
+6. **🎙 Podcast studio** → select papers and generate an audio deep-dive (MP3).
+7. **🪵 Log Viewer** → debug any errors live.
 
 ---
 
@@ -169,8 +189,8 @@ app/
   podcast/              # NotebookLM-style script generation + edge-tts audio
   shutdown.py           # helper to stop the local API + UI servers (Exit button)
   citations/            # Crossref lookup, APA 7 / Vancouver formatters, resolution, service
-  ui/                   # Streamlit pages (main/Home/Projects/Chat/Podcast/Citations/Settings/Logs)
-data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
+  ui/                   # Streamlit pages (main/Home/Projects/Chat/Podcast/Citations/OCR/Settings/Logs)
+data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts, ocr_output
 .env                    # git-ignored: your secrets
 ```
 
@@ -221,6 +241,15 @@ data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts
   in-progress episodes). OCR also gains the [**PaddleOCR-VL-1.6**](https://github.com/PADDLEPADDLE/PADDLEOCR)
   and [**TeleOCR**](https://github.com/caipeng328/TeleOCR) vision-language backends
   (local VLM server first, gateway fallback).
+- ✅ **Phase 9 — One-click launcher + OCR to Markdown**: a single **`run.bat`**
+  that starts the API (then the UI) hidden in the background, waits for the API
+  port, and opens the browser (replaces `run_all.bat` / `run_api.bat` /
+  `run_ui.bat`; ports come from `.env`), plus a stand-alone **🔍 OCR to
+  Markdown** UI page — upload PDFs/images, per-page extraction (smart text
+  read or forced full-OCR rasterization with adjustable DPI), any configured
+  OCR backend (with a per-run vision-model override), live rendered/raw
+  Markdown preview, individual or zipped downloads, and a saved-file history
+  in `data/ocr_output/` with delete support.
 
 ## 📝 Notes & troubleshooting
 
