@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 730" width="960" height="730" role="img"
+     aria-label="Commentarium pipeline: upload, ingest (parse, chunk, embed, store), retrieval, answer generation, citation layer">
+  <style>
+    :root{
+      --bg:#0d1117; --panel:#161b22; --stroke:#30363d; --ink:#e6edf3; --muted:#8b949e; --line:#484f58;
+      --blue:#4493f8; --purple:#a371f7; --green:#3fb950; --orange:#db6d28;
+    }
+    .t     { font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
+    .h     { font-size:18px; font-weight:700; }
+    .s     { font-size:14px; fill:var(--muted); }
+    .cap   { font-size:13px; fill:var(--muted); }
+    .panel { fill:var(--panel); stroke:var(--stroke); stroke-width:2; }
+    .chip  { fill:var(--blue); }
+    .glow  { fill-opacity:0; }
+    .pulse { animation:pulse 6s ease-in-out infinite; }
+    .flow  { fill:none; stroke:var(--line); stroke-width:3; stroke-linecap:round;
+             stroke-dasharray:4 14; animation:flow 1.4s linear infinite; }
+    .packet-halo { fill:var(--blue); opacity:.28; }
+    .packet-core { fill:var(--blue); }
+    .packet-move { animation:travel 6s linear infinite; }
+    @keyframes pulse{ 0%,100%{ fill-opacity:0; } 8%{ fill-opacity:.30; } 22%{ fill-opacity:0; } }
+    @keyframes flow { to { stroke-dashoffset:-36; } }
+    @keyframes travel{ from{ transform:translateY(0); } to{ transform:translateY(582px); } }
+    .d2{ animation-delay:1.8s; } .d3{ animation-delay:3.6s; }
+    .d4{ animation-delay:4.8s; } .d5{ animation-delay:5.85s; }
+    @media (prefers-reduced-motion: reduce){
+      .flow, .pulse, .packet-move { animation:none !important; }
+    }
+  </style>
+
+  <rect x="0" y="0" width="960" height="730" fill="var(--bg)" rx="16"/>
+
+  <!-- flow spine + connectors -->
+  <path class="flow" d="M80,58 L80,640"/>
+  <path class="flow" d="M80,58 H140"/>
+  <path class="flow" d="M80,235 H140"/>
+  <path class="flow" d="M80,410 H140"/>
+  <path class="flow" d="M80,525 H140"/>
+  <path class="flow" d="M80,640 H140"/>
+
+  <!-- input chip -->
+  <rect x="140" y="30" width="300" height="56" rx="28" class="chip"/>
+  <text x="290" y="67" class="t h" fill="#ffffff" text-anchor="middle">PDF / DOCX</text>
+  <text x="470" y="67" class="t s">&#183;  scanned pages handled by OCR</text>
+
+  <!-- ingest pipeline -->
+  <rect x="140" y="140" width="740" height="190" rx="14" class="panel"/>
+  <rect x="140" y="140" width="740" height="190" rx="14" class="glow pulse d2" fill="var(--blue)"/>
+  <text x="172" y="176" class="t h" fill="var(--blue)">Ingest pipeline</text>
+  <text x="172" y="212" class="t s" fill="var(--ink)">parse &#183; PyMuPDF / python-docx (+ OCR for scanned pages)</text>
+  <text x="172" y="244" class="t s" fill="var(--ink)">chunk &#183; smart chunking with page &amp; section mapping</text>
+  <text x="172" y="276" class="t s" fill="var(--ink)">embed &#183; local sentence-transformers or your gateway /embeddings</text>
+  <text x="172" y="308" class="t s" fill="var(--ink)">store &#183; NumPy + SQLite vector store</text>
+
+  <!-- retrieval -->
+  <rect x="140" y="370" width="740" height="80" rx="14" class="panel"/>
+  <rect x="140" y="370" width="740" height="80" rx="14" class="glow pulse d3" fill="var(--purple)"/>
+  <text x="172" y="405" class="t h" fill="var(--purple)">Retrieval (RAG)</text>
+  <text x="172" y="430" class="t s">cosine search &#8594; top-k chunks, each carrying file + page(s)</text>
+
+  <!-- answer generation -->
+  <rect x="140" y="485" width="740" height="80" rx="14" class="panel"/>
+  <rect x="140" y="485" width="740" height="80" rx="14" class="glow pulse d4" fill="var(--green)"/>
+  <text x="172" y="520" class="t h" fill="var(--green)">Answer generation</text>
+  <text x="172" y="545" class="t s">your AI gateway &#8212; OpenRouter (online) or a fully local server</text>
+
+  <!-- citation layer -->
+  <rect x="140" y="600" width="740" height="80" rx="14" class="panel"/>
+  <rect x="140" y="600" width="740" height="80" rx="14" class="glow pulse d5" fill="var(--orange)"/>
+  <text x="172" y="635" class="t h" fill="var(--orange)">Citation layer &#183; APA 7 / Vancouver</text>
+  <text x="172" y="660" class="t s">[SRC:doc|page] markers resolved to a real reference list</text>
+
+  <text x="140" y="712" class="t cap">Side outputs: per-document summaries &#183; Podcast studio (edge-tts / VoiceStudio / OpenAI-compatible TTS)</text>
+
+  <!-- traveling packet -->
+  <g class="packet-move">
+    <circle class="packet-halo" cx="80" cy="58" r="13"/>
+    <circle class="packet-core" cx="80" cy="58" r="6.5"/>
+  </g>
+</svg>

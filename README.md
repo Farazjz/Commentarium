@@ -48,6 +48,18 @@ Ollama, vLLM, LiteLLM…).
 
 ## 🧱 Architecture
 
+Animated overview — a document flows down through ingest, embedding, retrieval,
+answering and citation:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/pipeline-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/pipeline-light.svg">
+  <img alt="Commentarium pipeline: upload → ingest (parse/chunk/embed/store) → retrieval (RAG) → answer generation → citation layer (APA 7 / Vancouver)" src="docs/pipeline-light.svg">
+</picture>
+
+<details>
+<summary>Plain-text version of the diagram</summary>
+
 ```
 Your files (PDF/DOCX)
       │  upload
@@ -69,6 +81,8 @@ Your files (PDF/DOCX)
 └─────────────────────┘        └─────────────────────┘
    answer + in-text markers → resolved to real Reference list
 ```
+
+</details>
 
 - **Backend:** FastAPI
 - **Frontend:** Streamlit
@@ -191,6 +205,7 @@ app/
   citations/            # Crossref lookup, APA 7 / Vancouver formatters, resolution, service
   ui/                   # Streamlit pages (main/Home/Projects/Chat/Podcast/Citations/OCR/Settings/Logs)
 data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts, ocr_output
+docs/                   # README assets (animated pipeline diagram, light + dark)
 .env                    # git-ignored: your secrets
 ```
 
