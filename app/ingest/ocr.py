@@ -194,15 +194,20 @@ def ocr_page_teleocr(image_bytes: bytes) -> str:
     return ocr_page_vision(image_bytes, model=model)
 
 
-def ocr_page(image_bytes: bytes) -> str | None:
-    """Dispatch to the configured OCR backend. Returns text or None on failure."""
+def ocr_page(
+    image_bytes: bytes,
+    *,
+    backend: str | None = None,
+    model: str | None = None,
+) -> str | None:
+    """Dispatch to the configured or specified OCR backend. Returns text or None on failure."""
     cfg = get_settings()
-    backend = cfg.ocr_backend
+    backend = backend or cfg.ocr_backend
     if backend == "disabled":
         return None
     try:
         if backend == "vision":
-            return ocr_page_vision(image_bytes)
+            return ocr_page_vision(image_bytes, model=model)
         if backend == "paddleocr-vl":
             return ocr_page_paddleocr_vl(image_bytes)
         if backend == "teleocr":

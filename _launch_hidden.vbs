@@ -2,7 +2,7 @@
 '  Commentarium - hidden server launcher
 '  Starts the FastAPI backend and the Streamlit UI with no
 '  windows (background) so no cmd windows appear.
-'  Args come from env vars set by run_all.bat:
+'  Args come from env vars set by run.bat:
 '    LAUNCH_CWD  - project root (chdir here first)
 '    API_PYTHON  - interpreter for the API
 '    UI_PYTHON   - interpreter for the UI

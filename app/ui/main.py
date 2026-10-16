@@ -44,6 +44,7 @@ pages = {
     "💬 Chat": "Chat",
     "🎙 Podcast": "Podcast",
     "📝 Citations": "Citations",
+    "🔍 OCR": "OCR",
     "⚙️ Settings": "Settings",
     "🪵 Log Viewer": "Logs",
 }
@@ -84,6 +85,7 @@ _PAGE_SCRIPTS = {
     "Chat": "app/ui/Chat.py",
     "Podcast": "app/ui/Podcast.py",
     "Citations": "app/ui/Citations.py",
+    "OCR": "app/ui/OCR.py",
     "Settings": "app/ui/Settings.py",
     "Logs": "app/ui/Logs.py",
 }

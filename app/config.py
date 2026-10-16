@@ -180,6 +180,12 @@ class Settings(BaseSettings):
         return p
 
     @property
+    def ocr_output_dir(self) -> Path:
+        p = self.resolved_data_dir / "ocr_output"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
     def db_path(self) -> Path:
         return self.resolved_data_dir / "app.db"
 

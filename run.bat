@@ -2,10 +2,11 @@
 setlocal EnableExtensions EnableDelayedExpansion
 REM ============================================================
 REM  Commentarium - background launcher for the API + UI
-REM  Starts the FastAPI backend and the Streamlit UI fully in the
-REM  BACKGROUND (no console windows) via a hidden VBS launcher,
-REM  then opens the browser. Use stop_all.bat (or the UI's
-REM  "Exit & shut down servers" button) to stop both servers.
+REM  Starts the FastAPI backend first, then the Streamlit UI,
+REM  both fully in the BACKGROUND (no console windows) via a
+REM  hidden VBS launcher, then opens the browser.
+REM  Use stop_all.bat (or the UI's "Exit & shut down servers"
+REM  button) to stop both servers.
 REM ============================================================
 
 cd /d "%~dp0"
@@ -65,7 +66,7 @@ set "API_URL=http://127.0.0.1:%API_PORT%"
 set "UI_URL=http://127.0.0.1:%UI_PORT%"
 
 REM ------------------------------------------------------------
-REM 2. Launch both servers hidden via the VBS wrapper
+REM 2. Launch API first, then UI - both hidden via the VBS wrapper
 REM ------------------------------------------------------------
 set "LAUNCH_CWD=%~dp0"
 set "API_PYTHON=%PYTHONW%"
