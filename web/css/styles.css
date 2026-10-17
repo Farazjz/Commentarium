@@ -358,3 +358,17 @@ textarea.tf:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in s
 .preview hr{border:none;border-top:1px dashed var(--border2);margin:.8em 0}
 .preview p{margin:.45em 0}
 .twotabs{display:flex;gap:3px}
+
+/* ============ Settings + Logs (P10) ============ */
+.fgrid{display:flex;flex-direction:column}
+.frow{display:flex;gap:14px;align-items:center;padding:8px 2px;border-bottom:1px dashed var(--border)}
+.frow:last-child{border-bottom:none}
+.frow.dirty{background:color-mix(in srgb,var(--accent2) 6%,transparent);border-radius:8px;padding-left:8px;padding-right:8px}
+.fmeta{flex:1;min-width:0}
+.flabel{font-size:13px;display:flex;flex-direction:column}
+.fkey{font-size:10px;color:var(--faint);font-family:ui-monospace,Consolas,monospace}
+.frow input,.frow select{width:280px;flex:none;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);padding:7px 10px;font-size:12.5px}
+.frow input:focus,.frow select:focus{outline:none;border-color:var(--accent)}
+.logbox{margin:0;padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:56vh;min-height:300px}
+.logbox .lg-err{background:color-mix(in srgb,var(--err) 12%,transparent);color:var(--err)}
+.logbox .lg-warn{background:color-mix(in srgb,var(--warn) 12%,transparent);color:var(--warn)}

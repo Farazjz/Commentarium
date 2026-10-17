@@ -13,7 +13,8 @@
 > ✅ OCR API · ✅ Library view + upload with live ingest ·
 > ✅ Chat with sources & citations · ✅ Citations workflow + bibliography
 > export · ✅ Podcast studio (async generation + waveform player) ·
-> ✅ OCR studio view — next: Settings, Logs.
+> ✅ OCR studio view · ✅ Settings (.env writer) + live Logs —
+> v2 feature complete; pending: QA/docs pass & v2.0.0 release.
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get

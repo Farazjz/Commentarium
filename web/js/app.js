@@ -10,6 +10,8 @@ import { render as renderChat, renderCtx as renderCtxChat } from "./views/chat.j
 import { render as renderCitations, renderCtx as renderCtxCitations } from "./views/citations.js";
 import { render as renderPodcast, renderCtx as renderCtxPodcast } from "./views/podcast.js";
 import { render as renderOcr, renderCtx as renderCtxOcr } from "./views/ocr.js";
+import { render as renderSettings } from "./views/settings.js";
+import { render as renderLogs, renderCtx as renderCtxLogs } from "./views/logs.js";
 import { renderPhase, renderCtxPhase } from "./views/phases.js";
 
 /* ============ theme ============ */
@@ -41,6 +43,10 @@ function renderView(view) {
     renderPodcast(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
   } else if (view === "ocr") {
     renderOcr(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
+  } else if (view === "settings") {
+    renderSettings(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
+  } else if (view === "logs") {
+    renderLogs(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
   } else {
     renderPhase(view, root);
   }
@@ -84,6 +90,8 @@ function renderCtx(view) {
     renderCtxPodcast(ctx);
   } else if (view === "ocr") {
     renderCtxOcr(ctx);
+  } else if (view === "logs") {
+    renderCtxLogs(ctx);
   } else {
     renderCtxPhase(view, ctx);
   }
