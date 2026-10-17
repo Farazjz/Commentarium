@@ -2,6 +2,13 @@
 
 > **More info & full documentation:** [github.com/Farazjz/Commentarium](https://github.com/Farazjz/Commentarium)
 
+> **🚧 v2.0 branch — "Research Studio UI"** · This branch (`v2.0`) modernises the
+> frontend: a dark/light single-page app served by the **same FastAPI backend**
+> (Streamlit remains available as a legacy fallback). The current stable release
+> of the v1.x line is **tag [`v1.9.0`](https://github.com/Farazjz/Commentarium/releases/tag/v1.9.0)**
+> (development Phases 1–9 complete). Design source of truth:
+> [`docs/design/new-ui-mockup.html`](docs/design/new-ui-mockup.html).
+
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
 answers with **page-level citations** in APA 7 or Vancouver style.
