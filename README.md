@@ -13,12 +13,14 @@
 > ✅ OCR API · ✅ Library view + upload with live ingest ·
 > ✅ Chat with sources & citations · ✅ Citations workflow + bibliography
 > export · ✅ Podcast studio (async generation + waveform player) ·
-> ✅ OCR studio view · ✅ Settings (.env writer) + live Logs —
-> v2 feature complete; pending: QA/docs pass & v2.0.0 release.
+> ✅ OCR studio view · ✅ Settings (.env writer) + live Logs ·
+> ✅ Background launchers (`run.bat` / `stop_all.bat`) —
+> feature complete, shipping as **v2.0.0** (release page pending).
 
-A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
-**Word** documents, chat over them with the AI model of your choice, and get
-answers with **page-level citations** in APA 7 or Vancouver style.
+A **local** research assistant for your MSc biotechnology thesis. Upload **PDF,
+Word, TXT and Markdown** documents, chat over them with the AI model of your
+choice, and get answers with **page-level citations** in APA 7 or Vancouver
+style. Scanned PDFs and images are handled by the OCR studio.
 
 Built as a lean, thesis-focused alternative to
 [open-notebook](https://github.com/lfnovo/open-notebook) — privacy-first, runs
@@ -31,7 +33,15 @@ Ollama, vLLM, LiteLLM…).
 ## ✨ Features
 
 - 🔒 **100% local & private** — your files never leave your computer
-- 📄 Upload **PDF** and **DOCX** files
+- 🖥️ **Research Studio SPA (v2)** — a dark/light single-page app served
+  directly by the FastAPI process (no build step, no node): live Dashboard,
+  Library, Chat, Podcast studio, OCR, Citations, Settings and a Log viewer in
+  one sidebar; **command palette** (`Ctrl/Cmd + K`, `Enter` runs, `Esc`
+  closes); live Dashboard quick actions (Upload / Chat / Podcast / OCR /
+  Settings / Log viewer / **Exit & shut down**)
+- 📄 Upload **PDF, Word (DOCX/DOC), TXT and Markdown** files — see
+  [Supported documents](#-supported-documents) below; images and scanned PDFs
+  go through the OCR studio first
 - 🤖 Bring your own AI — paste any **OpenAI-compatible** key from an online
   router **or a local server** (OpenRouter, LiteLLM, LM Studio, Ollama via its
   OpenAI bridge, vLLM…), pick any **chat** model and **embedding** backend
@@ -59,6 +69,24 @@ Ollama, vLLM, LiteLLM…).
 - 🛡️ **Embedding-dim guard** — prevents silent corruption if you change
   embedding models; Projects page shows corpus-model identity and warns on mismatch
 - 🪵 **Log viewer** — live, filterable logs (file + console + in-app) for debugging
+
+## 📄 Supported documents
+
+| Where | Formats | What happens |
+|---|---|---|
+| **Library** (upload → ingest → chat/citations) | `.pdf` · `.docx` · `.doc` · `.txt` · `.md` / `.markdown` / `.text` | Parsed (PyMuPDF for PDFs, python-docx for Word, direct read for text/Markdown), chunked with page/section mapping, embedded into the local NumPy + SQLite vector store |
+| **OCR studio** (→ Markdown files) | `.pdf` (incl. scanned) · `.png` · `.jpg` / `.jpeg` · `.webp` · `.bmp` · `.tiff` | Extracted page-by-page (smart text read or forced full-OCR rasterization) with your chosen OCR backend, saved as clean `.md` files in `data/ocr_output/` |
+
+Notes:
+
+- Anything the **OCR studio produces** (`.md`) can be uploaded to the Library
+  like any other document — that's the path to make scans/image-only papers
+  searchable and chat-able.
+- purely text-based PDFs parse without OCR; scanned ones automatically fall
+  back to OCR when a backend is configured (see
+  [troubleshooting](#-notes--troubleshooting)).
+- `.doc` (legacy Word) is accepted and routed to the Word parser; for best
+  fidelity convert to `.docx`.
 
 ## 🧱 Architecture
 
@@ -98,8 +126,9 @@ Your files (PDF/DOCX)
 
 </details>
 
-- **Backend:** FastAPI
-- **Frontend:** Streamlit
+- **Backend:** FastAPI (also serves the v2 SPA; `web/` — no build step)
+- **Frontend:** vanilla-JS single-page app (v2, default) · Streamlit (v1 legacy
+  fallback, still available)
 - **AI:** your OpenAI-compatible chat gateway — online router (OpenRouter,
   Gemini…) or fully local (LM Studio, vLLM, Ollama proxy, LiteLLM…)
 - **Embeddings:** sentence-transformers (local) or your gateway's `/embeddings`
@@ -162,41 +191,48 @@ Double-click **`run.bat`** in the project folder (or run it from a terminal):
 run.bat
 ```
 
-It starts the **FastAPI backend first**, then the **Streamlit UI** — both quietly
-in the background (no console windows) — waits for the API to come online, then
-opens your browser at **http://localhost:8501** automatically. Stop both servers
-later with **stop_all.bat**, or the "Exit & shut down servers" button in the UI
-sidebar.
+It starts the **FastAPI server quietly in the background** (no console window,
+via `pythonw`) — the v2 SPA is served by that same process — waits for the API
+port to come online, then opens your browser at
+**http://localhost:8010** automatically. Stop it later with **stop_all.bat**,
+or the "Exit & shut down" buttons in the app (sidebar, Dashboard hero, or
+Settings → danger zone). A root-level copy of both launchers sits one folder
+above; both work.
 
-Ports come from `.env` (`PORT` for the API, `UI_PORT` for the UI; defaults
-8000 / 8501).
+The port comes from `.env` (`PORT`, default `8010` on this branch; the legacy
+Streamlit fallback would use `UI_PORT`, default `8511`).
 
-> Prefer visible consoles / manual control? Run each server yourself:
+> Prefer visible consoles / manual control? Run the server yourself:
 >
 > ```bash
-> # Terminal 1 — the backend
-> python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
->
-> # Terminal 2 — the UI (in a second terminal)
-> streamlit run app/ui/main.py --server.port 8501 --server.address 127.0.0.1 --server.headless true
+> python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload
 > ```
 >
-> Then open http://localhost:8501 in your browser.
+> Then open http://localhost:8010 in your browser. The legacy Streamlit UI
+> (v1 look) can still be served with:
+>
+> ```bash
+> streamlit run app/ui/main.py --server.port 8511 --server.address 127.0.0.1 --server.headless true
+> ```
 
 ### 4. First steps in the UI
 
 1. **⚙️ Settings** → paste your AI/gateway key → **Test connection** → pick your
    chat model. Local setups: point the base URL at your local server instead of
    using a key. Set OCR backends (incl. PaddleOCR-VL / TeleOCR) and podcast voices here.
-2. **📁 Projects & Files** → create a project, upload your PDF/Word papers, add
-   tags/notes, and generate summaries (Brief/Key points/Quiz…).
-3. **💬 Chat** → ask questions; answers come with page-level citations. Set a
-   per-project model/temperature in the sidebar.
+2. **📚 Library** → upload your PDF/Word/text papers, add tags/notes, and
+   generate summaries (Brief/Key points/Quiz…).
+3. **💬 Chat** → ask questions; answers come with page-level citations. Pick a
+   project scope first — it filters threads and drives what the model sees.
 4. **📝 Citations** → verify document metadata; export APA 7 / Vancouver.
-5. **🔍 OCR to Markdown** → upload PDFs or images, extract text via your chosen
-   OCR backend, and export clean Markdown files.
-6. **🎙 Podcast studio** → select papers and generate an audio deep-dive (MP3).
-7. **🪵 Log Viewer** → debug any errors live.
+5. **🔍 OCR** → upload PDFs or images, extract text via your chosen OCR
+   backend, and export clean Markdown files.
+6. **🎙 Podcast** → select papers (optionally scoped to a project) and generate
+   an audio deep-dive (MP3 waveform player).
+7. **🪵 Logs** → debug any errors live.
+
+On the Dashboard, the hero quick-action buttons jump straight to the common
+tasks (Upload / Chat / Podcast / OCR / Settings / Log viewer / Exit).
 
 ---
 
@@ -204,7 +240,7 @@ Ports come from `.env` (`PORT` for the API, `UI_PORT` for the UI; defaults
 
 ```
 app/
-  main.py               # FastAPI entry + endpoints (/health, /projects, /documents, /chat, /citations, /podcasts, ...)
+  main.py               # FastAPI entry + endpoints (/health, /projects, /documents, /chat, /citations, /podcasts, ...); serves the v2 SPA
   config.py             # .env settings, storage paths
   logging_setup.py      # rotating file + console + in-app log buffer
   models_openrouter.py  # OpenAI-compatible provider client (test connection, list models, chat, embeddings)
@@ -212,12 +248,19 @@ app/
     vectorstore.py      # NumPy + SQLite vector store (dimension guard, model identity)
     metadata.py         # SQLite projects/documents/citation metadata + tags/notes/summaries/podcasts
     chat.py             # SQLite chat sessions + message history
-  ingest/               # parsers (PDF/DOCX + OCR), chunking, embeddings, pipeline
+  ingest/               # parsers (PDF/DOCX/TXT/MD + OCR), chunking, embeddings, pipeline
   rag/                  # retrieval (focused + distributed), prompts, generation, chat engine, summaries
   podcast/              # NotebookLM-style script generation + edge-tts audio
-  shutdown.py           # helper to stop the local API + UI servers (Exit button)
+  shutdown.py           # helper to stop the local server (Exit button)
   citations/            # Crossref lookup, APA 7 / Vancouver formatters, resolution, service
-  ui/                   # Streamlit pages (main/Home/Projects/Chat/Podcast/Citations/OCR/Settings/Logs)
+  ui/                   # Streamlit pages (v1 legacy fallback: main/Home/Projects/Chat/Podcast/Citations/OCR/Settings/Logs)
+web/                    # v2 Research Studio SPA (served by FastAPI at :8010)
+  index.html            # app shell: sidebar rail, topbar, context panel, svg sprite
+  css/styles.css        # shell + view styles (dark/light themes)
+  js/                   # vanilla ES modules, no build step (app.js = shell; views/ = per-page modules)
+scripts/                # dev/QA: Playwright browser E2E (test_spa_browser.py), rail geometry probe, etc.
+run.bat / stop_all.bat  # launch / stop the v2 server in the background (also present one folder up)
+_run_api.py             # pythonw entrypoint used by run.bat
 data/                   # git-ignored: uploads, sqlite, vectors, logs, podcasts, ocr_output
 docs/                   # README assets (animated pipeline diagram, light + dark)
 .env                    # git-ignored: your secrets
@@ -279,6 +322,14 @@ docs/                   # README assets (animated pipeline diagram, light + dark
   OCR backend (with a per-run vision-model override), live rendered/raw
   Markdown preview, individual or zipped downloads, and a saved-file history
   in `data/ocr_output/` with delete support.
+- ✅ **Phase 10 — Research Studio SPA (v2.0)**: a fast single-page app in
+  `web/` (vanilla ES modules, no build step) served by the FastAPI process —
+  live Dashboard with quick actions, Library with live ingest, Chat with
+  project scope + sources, Podcast studio (async generation, waveform player),
+  OCR studio, Citations, Settings (.env writer) and live Logs, plus a command
+  palette (`Ctrl/Cmd + K`); dedicated background launchers (`run.bat` /
+  `stop_all.bat`, pythonw + hidden console) with a root-level shim. Port-aware
+  shutdown (`/shutdown` honors `.env` `PORT`/`UI_PORT` and pythonw).
 
 ## 📝 Notes & troubleshooting
 
