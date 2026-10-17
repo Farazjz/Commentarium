@@ -83,6 +83,45 @@ with sync_playwright() as p:
     print("settings cards:", cards[:5])
     assert any("Gateway" in c for c in cards), "groups missing"
 
+    # chat: project selector present and switches scope
+    page.click('.railbtn[data-view="chat"]')
+    page.wait_for_timeout(1000)
+    proj_sel = page.query_selector(".chatopts select")
+    assert proj_sel, "chat project selector missing"
+    n_opts = page.eval_on_selector_all(".chatopts select option", "els => els.length")
+    print("chat project options:", n_opts)
+    assert n_opts >= 2, "chat selector lacks projects"
+    # pick the second project option; a new empty thread state should clear
+    page.select_option(".chatopts select", index=1)
+    page.wait_for_timeout(700)
+    threads = page.eval_on_selector_all(".ctxpanel[data-view='chat'] .ctxrow", "els => els.map(e => e.textContent)")
+    print("threads after scope switch:", threads)
+
+    # podcast: paper list is scoped to selected project
+    page.click('.railbtn[data-view="podcast"]')
+    page.wait_for_timeout(900)
+    page.click('button:has-text("New episode")')
+    page.wait_for_timeout(400)
+    visible_docs = page.eval_on_selector_all(".docpick label", "els => els.map(e => e.textContent)")
+    modal_proj = page.eval_on_selector(".modal select", "s => s.options[s.selectedIndex].text")
+    print("podcast modal project:", modal_proj, "| scoped papers:", len(visible_docs))
+    total_docs = page.evaluate("fetch('/documents').then(r=>r.json()).then(d=>d.length)")
+    assert len(visible_docs) <= total_docs and visible_docs, "paper scoping broken"
+    page.click('.modal .btn:not(.primary):has-text("Cancel")')
+    page.wait_for_timeout(200)
+
+    # dashboard: new greeting + quick actions
+    page.click('.railbtn[data-view="dashboard"]')
+    page.wait_for_timeout(900)
+    hero = page.eval_on_selector(".hero h1", "e => e.textContent")
+    print("hero:", hero)
+    assert "your Commentarium assistant" in hero and "Greetings" in hero, "greeting text wrong"
+    grad = page.eval_on_selector(".hero .gradtext", "e => e.textContent")
+    assert "Commentarium assistant" in grad, "gradtext not on Commentarium assistant"
+    for label in ["Settings", "Log viewer", "Exit & shut down"]:
+        assert page.query_selector(f'.hero button:has-text("{label}")'), f"missing quick action {label}"
+    print("dashboard quick actions: all present")
+
     # logs view renders log lines
     page.click('.railbtn[data-view="logs"]')
     page.wait_for_timeout(1200)

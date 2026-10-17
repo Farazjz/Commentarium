@@ -62,12 +62,11 @@ export async function render(root) {
   root.textContent = "";
 
   /* ---- hero ---- */
-  const hour = new Date().getHours();
-  const greeting = hour < 5 ? "Good night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const docCount = indexStats?.document_count ?? null;
   root.append(
     el("div", { class: "hero card" },
-      el("h1", {}, `${greeting} — `, el("span", { class: "gradtext" }, "your thesis co-pilot"), " is ", indexStats ? el("b", {}, indexStats.embedding_model_matches ? "warm." : "out of sync.") : "warming up."),
+      el("h1", {}, "Greetings — ", el("span", { class: "gradtext" }, "your Commentarium assistant"), " is ",
+        indexStats ? el("b", {}, indexStats.embedding_model_matches ? "ready." : "out of sync.") : "warming up."),
       el("p", {}, indexStats
         ? `${docCount} papers in the library · ${indexStats.chunks} indexed chunks · corpus model ${indexStats.embedding_model || "(none stored)"} — everything still lives on this machine.`
         : "Connecting to the local API…"),
@@ -76,6 +75,17 @@ export async function render(root) {
         el("button", { class: "btn", onclick: () => go("chat") }, icon("chat"), "New chat"),
         el("button", { class: "btn", onclick: () => go("podcast") }, icon("mic"), "Podcast"),
         el("button", { class: "btn", onclick: () => go("ocr") }, icon("scan"), "OCR scan"),
+        el("button", { class: "btn", onclick: () => go("settings") }, icon("gear"), "Settings"),
+        el("button", { class: "btn", onclick: () => go("logs") }, icon("list"), "Log viewer"),
+        el("button", { class: "btn danger", onclick: async () => {
+          if (!confirm("Shut down the Commentarium servers?\nUnsaved edits and running jobs will be lost.")) return;
+          if (!confirm("Are you sure? The SPA and API stop until you launch Commentarium again.")) return;
+          try { await api.post("/shutdown", {}); } catch { /* server dies mid-call */ }
+          document.body.innerHTML =
+            "<div style='display:grid;place-items:center;height:100vh;font-family:Inter,system-ui'>" +
+            "<div style='text-align:center;color:#888'>Servers stopped — relaunch Commentarium to continue." +
+            "<br><small>You can close this tab.</small></div></div>";
+        } }, icon("power"), "Exit & shut down"),
       ),
     ),
   );

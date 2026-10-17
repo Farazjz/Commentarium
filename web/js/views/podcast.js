@@ -109,20 +109,37 @@ const fmtSec = (s) => fmtDur(s);
 function generateModal(docs, projects) {
   if (!docs.length) { toast("Upload and index papers first (Library)", "info"); return; }
   const defaultPid = store.get("libProject") || (projects[0] || {}).id || "";
-  const picked = new Set(docs.slice(0, 1).map((d) => d.id));   // convenience: first paper preselected
-  const list = el("div", { class: "docpick" },
-    ...docs.map((d) => {
-      const lab = el("label", {},
-        el("input", { type: "checkbox", ...(picked.has(d.id) ? { checked: "" } : {}), onchange: (e) =>
+  const picked = new Set();
+  const list = el("div", { class: "docpick" });
+  const titleIn = el("input", { type: "text", maxlength: "90" });
+
+  /* papers come only from the selected project */
+  const drawPapers = () => {
+    const pid = projSel.value || "";
+    const avail = docs.filter((d) => (d.project_id || "") === pid);
+    picked.clear();
+    list.textContent = "";
+    if (!avail.length) {
+      list.append(el("div", { class: "muted", style: "padding:10px 4px;font-size:12px" },
+        "No indexed papers in this project yet — upload via the Library."));
+      titleIn.value = "Deep dive";
+      return;
+    }
+    avail.forEach((d, i) => {
+      if (i === 0) {
+        picked.add(d.id);
+        titleIn.value = "Deep dive: " + (d.title || d.filename);
+      }
+      list.append(el("label", {},
+        el("input", { type: "checkbox", ...(i === 0 ? { checked: "" } : {}), onchange: (e) =>
           e.target.checked ? picked.add(d.id) : picked.delete(d.id) }),
         el("span", { style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" },
-          d.title || d.filename));
-      lab.dataset.doc = "1";
-      return lab;
-    }));
-  const titleIn = el("input", { type: "text", value: "Deep dive: " + (docs[0].title || docs[0].filename), maxlength: "90" });
-  const projSel = el("select", {}, ...projects.map((p) =>
+          d.title || d.filename)));
+    });
+  };
+  const projSel = el("select", { onchange: drawPapers }, ...projects.map((p) =>
     el("option", { value: p.id, ...(p.id === defaultPid ? { selected: "" } : {}) }, p.name || "(unnamed)")));
+  drawPapers();
   let dur = "medium";
   const mrow = el("div", { class: "genrow" }, ...Object.entries(DUR).map(([k, label]) =>
     el("button", { class: `chip ${k === dur ? "on" : ""}`, onclick: (e) => {

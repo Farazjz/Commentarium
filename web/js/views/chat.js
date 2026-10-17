@@ -80,8 +80,8 @@ async function send(textarea, msgsEl, redraw) {
 
   let sid = store.get("chatSession");
   try {
+    const project = store.get("chatProject") ?? store.get("libProject") ?? "";
     if (!sid) {
-      const project = store.get("libProject") || ((store.get("projects") || [])[0] || {}).id || "";
       const s = await api.post(`/chat/sessions?project_id=${encodeURIComponent(project)}&title=${encodeURIComponent(q.slice(0, 48))}`);
       sid = s.id;
       store.set("chatSession", sid);
@@ -93,7 +93,7 @@ async function send(textarea, msgsEl, redraw) {
     const res = await api.post("/chat/ask", {
       question: q,
       session_id: sid,
-      project_id: store.get("libProject") || undefined,
+      project_id: store.get("chatProject") ?? store.get("libProject") ?? undefined,
       distributed: opts.distributed,
       style: opts.style,
     });
@@ -148,12 +148,22 @@ export async function render(root) {
   };
 
   root.append(el("div", { class: "chatopts" },
+    el("span", { class: "countchip" }, "project"),
+    (() => {
+      const projects = store.get("projects") || [];
+      const cur = store.get("chatProject") ?? store.get("libProject") ?? "";
+      const sel = el("select", { onchange: (e) => {
+        store.set("chatProject", e.target.value);
+        store.set("chatSession", null);
+        lastSources = [];
+        go("chat");
+      } },
+        el("option", { value: "" }, "All projects"),
+        ...projects.map((p) => el("option", { value: p.id, ...(p.id === cur ? { selected: "" } : {}) }, p.name || "(unnamed)")));
+      return sel;
+    })(),
     el("span", { class: "countchip" }, "mode"), segMode,
-    el("span", { class: "countchip" }, "style"), segStyle,
-    el("span", { class: "countchip", style: "margin-left:auto" },
-      store.get("libProject")
-        ? `scope: ${(store.get("projects") || []).find((p) => p.id === store.get("libProject"))?.name || "project"}`
-        : "scope: all projects")));
+    el("span", { class: "countchip" }, "style"), segStyle));
 
   const grid = el("div", { class: "chatgrid" });
   const chatcol = el("div", { class: "chatcol" });
@@ -197,11 +207,14 @@ export async function render(root) {
 
 /* ---------- context panel: sessions ---------- */
 export function renderCtx(ctxP) {
-  const sessions = store.get("sessions") || [];
+  const scope = store.get("chatProject") ?? store.get("libProject") ?? "";
+  const sessions = (store.get("sessions") || []).filter((s) => !scope || s.project_id === scope);
   const sid = store.get("chatSession");
   const panel = el("div", { class: "ctxpanel", "data-view": "chat" });
   panel.append(
     el("div", { class: "chead" }, "Chat threads"),
+    scope ? el("div", { class: "mini", style: "padding:2px 8px;color:var(--faint)" },
+      ((store.get("projects") || []).find((p) => p.id === scope) || {}).name || scope) : el("span"),
     el("div", {
       class: `ctxrow ${!sid ? "on" : ""}`,
       onclick: () => { store.set("chatSession", null); lastSources = []; go("chat"); },
