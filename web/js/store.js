@@ -13,6 +13,9 @@ export const store = {
     projects: [],          /* /projects          */
     podcasts: [],          /* /podcasts          */
     sessions: [],          /* /chat/sessions     */
+    chatSession: null,     /* selected chat id   */
+    ingestQueue: [],       /* active ingest jobs */
+    queueTimer: null,      /* poll handle        */
     apiOnline: false,      /* last health poll   */
   },
   get(k) { return this.data[k]; },
