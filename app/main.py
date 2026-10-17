@@ -898,9 +898,16 @@ async def shutdown_api():
 # ---------------------------------------------------------------------------
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+_DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+# NOTE: "/docs" must be mounted BEFORE the root "/" mount — StaticFiles mounts
+# never fall through on a missing file, so the root mount would swallow every
+# /docs/* path otherwise.
+if _DOCS_DIR.is_dir():
+    app.mount("/docs", StaticFiles(directory=str(_DOCS_DIR)), name="docs")
 if (_WEB_DIR / "index.html").is_file():
     app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="spa")
-else:
+
+if not (_WEB_DIR / "index.html").is_file():
     @app.get("/")
     async def spa_placeholder():
         """API-only mode while the SPA files are not built yet (web/)."""
