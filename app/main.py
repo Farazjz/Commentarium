@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Commentarium API",
     description="RAG system for thesis research – upload PDFs & Word docs, chat with them, get accurate citations.",
-    version="0.1.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
