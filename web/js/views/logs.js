@@ -1,5 +1,5 @@
-﻿/* Logs (P10): live tail of the server's in-memory log buffer with level
-   filters, auto-refresh, clear-all. GET /logs?level=&n= Â· DELETE /logs. */
+/* Logs (P10): live tail of the server's in-memory log buffer with level
+   filters, auto-refresh, clear-all. GET /logs?level=&n= · DELETE /logs. */
 import { api } from "../api.js";
 import { store } from "../store.js";
 import { el, icon, toast } from "../ui.js";
@@ -39,10 +39,10 @@ export async function render(root) {
         onclick: (e) => {
           auto = !auto;
           e.target.closest("button").classList.toggle("danger", !auto);
-          e.target.closest("button").textContent = auto ? "Auto 2s â—" : "Auto off";
+          e.target.closest("button").textContent = auto ? "Auto 2s ●" : "Auto off";
           if (auto) go("logs"); else tick();
         },
-      }, auto ? "Auto 2s â—" : "Auto off"),
+      }, auto ? "Auto 2s ●" : "Auto off"),
       el("button", { class: "btn sm", onclick: () => go("logs") }, icon("refresh"), "Refresh"),
       el("button", { class: "btn sm danger", style: "color:var(--err)", onclick: async () => {
         if (!confirm("Clear the in-memory log buffer?")) return;
@@ -60,7 +60,7 @@ export async function render(root) {
       } }, lv === "all" ? "All levels" : lv))));
 
   const card = el("div", { class: "card" }, el("div", { class: "tblwrap" }));
-  const box = el("pre", { class: "logbox" }, "loadingâ€¦");
+  const box = el("pre", { class: "logbox" }, "loading…");
   card.append(box);
   root.append(card);
   const count = el("span", { class: "mini", style: "display:block;margin-top:8px;color:var(--faint)" }, "");
@@ -107,8 +107,8 @@ export function renderCtx(ctxP) {
   );
   panel.append(el("div", { class: "chead", style: "margin-top:16px" }, "Levels"));
   panel.append(el("div", { class: "muted", style: "font-size:12px;line-height:1.6" },
-    "warning â€“ non-fatal fallbacks (DOI faults, OCR skips)",
-    el("br"), "error â€“ failed requests & background jobs"));
+    "warning – non-fatal fallbacks (DOI faults, OCR skips)",
+    el("br"), "error – failed requests & background jobs"));
   ctxP.append(panel);
 }
 

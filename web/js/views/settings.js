@@ -1,4 +1,4 @@
-﻿/* Settings (P10): grouped cards over GET/PATCH /settings (whitelisted .env
+/* Settings (P10): grouped cards over GET/PATCH /settings (whitelisted .env
    keys), masked secrets, unsaved-credential connection test, model picker,
    danger zone with server shutdown. */
 import { api } from "../api.js";
@@ -7,7 +7,7 @@ import { el, icon, toast } from "../ui.js";
 import { go } from "../router.js";
 
 /* field meta: [ENV_KEY, friendly label, kind]
-   kind: text | secret | int | float | bool | select:optA|optB|â€¦            */
+   kind: text | secret | int | float | bool | select:optA|optB|…            */
 const GROUPS = [
   ["Gateway & answers", [
     ["OPENROUTER_BASE_URL", "Gateway base URL", "text"],
@@ -80,7 +80,7 @@ const isSecret = (key) => /API_KEY|TOKEN/.test(key) || key === "CF_ACCOUNT_ID";
 
 function fieldRow(key, label, kind) {
   const cur = edits[key] !== undefined ? edits[key] : snap[key];
-  const masked = typeof cur === "string" && cur.includes("â€¢");
+  const masked = typeof cur === "string" && cur.includes("•");
   let input;
   if (kind === "bool") {
     input = el("div", { class: `sw ${cur ? "on" : ""}`, onclick: () => {
@@ -121,11 +121,11 @@ function groupCard(title, fields) {
 /* model picker: choose CHAT_MODEL from the gateway's list */
 function modelPickerModal() {
   const ov = el("div", { class: "modalov open" });
-  const list = el("div", { style: "font-size:12.5px" }, el("span", { class: "muted" }, "Loading modelsâ€¦"));
+  const list = el("div", { style: "font-size:12.5px" }, el("span", { class: "muted" }, "Loading models…"));
   const modal = el("div", { class: "modal", style: "width:520px" },
     el("h3", {}, "Choose answer model"),
     el("div", { class: "muted", style: "font-size:11.5px;margin:-6px 0 10px" },
-      "From the gateway at " + (snap.OPENROUTER_BASE_URL || "â€”")),
+      "From the gateway at " + (snap.OPENROUTER_BASE_URL || "—")),
     list,
     el("div", { class: "mrow" },
       el("button", { class: "btn", onclick: () => ov.remove() }, "Close")));
@@ -143,7 +143,7 @@ function modelPickerModal() {
       const id = typeof m === "string" ? m : (m.id || m.name || "unknown");
       scroller.append(el("div", { class: "ctxrow", onclick: () => {
         edits.CHAT_MODEL = id;
-        toast("Model selected â€” press Save to apply", "ok");
+        toast("Model selected — press Save to apply", "ok");
         ov.remove();
         go("settings");
       } },
@@ -159,11 +159,11 @@ function testConnection(keyProbe) {
   const row = el("div", { class: "kv", style: "border-bottom:none" });
   const result = el("span", { style: "min-width:0;font-size:12px;color:var(--dim);word-break:break-all" });
   async function run() {
-    result.textContent = "testingâ€¦";
+    result.textContent = "testing…";
     const body = { base_url: snap.OPENROUTER_BASE_URL || "" };
     const keyVal = keyProbe.value.trim();
     // only send the unsaved key when the user changed it (mask = stored value)
-    if (keyVal && !keyVal.includes("â€¢")) body.api_key = keyVal;
+    if (keyVal && !keyVal.includes("•")) body.api_key = keyVal;
     try {
       const r = await api.post("/settings/test-connection", body);
       result.textContent = "";
@@ -188,7 +188,7 @@ export async function render(root) {
 
   root.append(el("div", { class: "vhead" },
     el("h2", {}, "Settings"),
-    el("span", { class: "vhsub" }, "saved to .env â€¢ writes are whitelisted"),
+    el("span", { class: "vhsub" }, "saved to .env • writes are whitelisted"),
     el("div", { class: "right" },
       el("button", { class: "btn", onclick: () => modelPickerModal() }, icon("bot"), "Browse models"),
       el("button", {
@@ -209,7 +209,7 @@ export async function render(root) {
       el("span", { class: "hint" }, "test key before saving")));
   const keyProbe = el("input", {
     type: "text", autocomplete: "off",
-    placeholder: (snap.OPENROUTER_API_KEY || "no key stored") + " â€” type a new key to test it",
+    placeholder: (snap.OPENROUTER_API_KEY || "no key stored") + " — type a new key to test it",
   });
   probeCard.append(el("div", { class: "fgrid" }, el("div", { class: "frow" },
     el("div", { class: "fmeta" }, el("div", { class: "flabel" }, "API key", el("span", { class: "fkey" }, "OPENROUTER_API_KEY")), el("span")),
@@ -228,7 +228,7 @@ export async function render(root) {
           if (!confirm("Shut down the Commentarium servers?\nUnsaved Settings edits and running jobs will be lost.")) return;
           if (!confirm("Are you sure? The SPA and API stop until you launch Commentarium again.")) return;
           try { await api.post("/shutdown", {}); } catch { /* server dies mid-call */ }
-          document.body.innerHTML = "<div style='display:grid;place-items:center;height:100vh;font-family:Inter,system-ui;color:var(--dim,gray)'><div>Servers stopped â€” relaunch Commentarium to continue.<br><small>You can close this tab.</small></div></div>";
+          document.body.innerHTML = "<div style='display:grid;place-items:center;height:100vh;font-family:Inter,system-ui;color:var(--dim,gray)'><div>Servers stopped — relaunch Commentarium to continue.<br><small>You can close this tab.</small></div></div>";
         } }, icon("power"), "Shut down Commentarium")),
       el("span", { class: "v", style: "color:var(--dim);font-weight:400" },
         `API :${snap._port || 8010} + UI - stops both processes cleanly.`))));

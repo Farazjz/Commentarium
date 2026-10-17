@@ -56,7 +56,7 @@ function citationModal(doc, autoData, onSaved) {
         }
       } },
         el("div", { class: "cdt" }, el("span", {}, c.title || "(untitled)"), el("span", { class: "sp" }, conf)),
-        el("div", { class: "cdm" }, [c.journal, c.year, c.doi].filter(Boolean).join(" · "))));
+        el("div", { class: "cdm" }, [c.journal, c.year, c.doi].filter(Boolean).join(" · ")));
       candWrap.append(row);
     });
   };

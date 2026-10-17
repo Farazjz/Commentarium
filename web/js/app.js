@@ -3,7 +3,7 @@
 import { api } from "./api.js";
 import { store } from "./store.js";
 import { el, icon, toast } from "./ui.js";
-import { VIEWS, currentView, render, onViewRender } from "./router.js";
+import { VIEWS, currentView, render, onViewRender, go } from "./router.js";
 import { render as renderDashboard } from "./views/dashboard.js";
 import { render as renderLibrary, renderCtx as renderCtxLibrary } from "./views/library.js";
 import { render as renderChat, renderCtx as renderCtxChat } from "./views/chat.js";
@@ -226,6 +226,11 @@ function boot() {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       document.querySelector("#paletteOverlay").classList.contains("open") ? closePalette() : openPalette();
+    }
+    if (e.key === "Enter" && document.querySelector("#paletteOverlay").classList.contains("open")) {
+      e.preventDefault();
+      const first = document.querySelector("#cmdList .cmditem");
+      if (first) { runPaletteAct(first.dataset.act); closePalette(); }
     }
     if (e.key === "Escape") closePalette();
   });

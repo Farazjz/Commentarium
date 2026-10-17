@@ -21,3 +21,5 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+# installed debug tooling
+node_modules/

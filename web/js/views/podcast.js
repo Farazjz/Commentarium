@@ -203,7 +203,7 @@ export async function render(root) {
 
   /* generation progress — keyed on /jobs kind=podcast (episodes appear when done) */
   let jobsList = [];
-  try { jobsList = await api.get("/jobs"); } catch { /* offline */ }
+  try { jobsList = (await api.get("/jobs").catch(() => ({}))).jobs || []; } catch { /* offline */ }
   const activeJobs = (jobsList || []).filter((j) => j.kind === "podcast" &&
     (j.status === "running" || j.status === "queued"));
   if (activeJobs.length) {
