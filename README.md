@@ -12,7 +12,8 @@
 > **v2 progress:** ✅ Settings & jobs API · ✅ SPA shell + live Dashboard ·
 > ✅ OCR API · ✅ Library view + upload with live ingest ·
 > ✅ Chat with sources & citations · ✅ Citations workflow + bibliography
-> export — next: Podcast studio.
+> export · ✅ Podcast studio (async generation + waveform player) ·
+> ✅ OCR studio view — next: Settings, Logs.
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
