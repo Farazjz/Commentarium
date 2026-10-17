@@ -16,7 +16,7 @@
 > export · ✅ Podcast studio (async generation + waveform player) ·
 > ✅ OCR studio view · ✅ Settings (.env writer) + live Logs ·
 > ✅ Background launchers (`run.bat` / `stop_all.bat`) —
-> feature complete, shipping as **v2.0.0** (release page pending).
+> feature complete, released as **[`v2.0.0`](https://github.com/Farazjz/Commentarium/releases/tag/v2.0.0)**.
 
 A **local** research assistant for your deep learning, thesis and scientific writing. Upload **PDF,
 Word, TXT and Markdown** documents, chat over them with the AI model of your
