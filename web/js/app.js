@@ -8,6 +8,7 @@ import { render as renderDashboard } from "./views/dashboard.js";
 import { render as renderLibrary, renderCtx as renderCtxLibrary } from "./views/library.js";
 import { render as renderChat, renderCtx as renderCtxChat } from "./views/chat.js";
 import { render as renderCitations, renderCtx as renderCtxCitations } from "./views/citations.js";
+import { render as renderPodcast, renderCtx as renderCtxPodcast } from "./views/podcast.js";
 import { renderPhase, renderCtxPhase } from "./views/phases.js";
 
 /* ============ theme ============ */
@@ -35,6 +36,8 @@ function renderView(view) {
     renderChat(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
   } else if (view === "citations") {
     renderCitations(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
+  } else if (view === "podcast") {
+    renderPodcast(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
   } else {
     renderPhase(view, root);
   }
@@ -74,6 +77,8 @@ function renderCtx(view) {
     renderCtxChat(ctx);
   } else if (view === "citations") {
     renderCtxCitations(ctx);
+  } else if (view === "podcast") {
+    renderCtxPodcast(ctx);
   } else {
     renderCtxPhase(view, ctx);
   }

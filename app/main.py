@@ -1024,6 +1024,116 @@ async def create_podcast(body: dict):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@app.post("/podcasts/generate-async")
+async def create_podcast_async(body: dict):
+    """Generate a podcast in the background as a /jobs item.
+
+    Body: {project_id, document_ids, title?, model?, provider?,
+           system_prompt?, duration_setting?, host_languages?}
+    Returns {job_id} immediately; generate_podcast creates the episode row
+    itself, so poll /jobs/{id} for stage progress (summarize -> script ->
+    synthesize) and the final podcast row id; the episode appears in
+    /podcasts with status ready/error.
+    """
+    import threading
+
+    from app.services import jobs
+
+    project_id = body.get("project_id") or ""
+    document_ids = body.get("document_ids") or []
+    if not project_id:
+        return JSONResponse(status_code=400, content={"error": "project_id required"})
+    if not document_ids:
+        return JSONResponse(status_code=400, content={"error": "document_ids required"})
+    title = (body.get("title") or "").strip() or "Untitled deep dive"
+
+    from app.podcast.generate import generate_podcast
+
+    job = jobs.create_job(
+        kind="podcast", label=f"Podcast · {title}",
+        payload={"documents": len(document_ids), "provider": body.get("provider"),
+                 "duration_setting": body.get("duration_setting") or "medium"},
+    )
+
+    def _run(job_id=job["id"]):
+        from app.services import jobs as j
+
+        def progress(done, total, action, message):
+            j.update_job(job_id, progress=(done / total) if total else None,
+                         message=f"{action} · {message}")
+        try:
+            row = generate_podcast(
+                project_id=project_id, document_ids=document_ids, title=title,
+                model=body.get("model") or None, provider=body.get("provider") or None,
+                system_prompt=body.get("system_prompt") or None,
+                duration_setting=body.get("duration_setting") or "medium",
+                host_languages=body.get("host_languages") or None,
+                progress=progress,
+            )
+            j.finish(job_id, result={k: row.get(k) for k in
+                                     ("id", "title", "status", "duration_sec", "tts_provider", "error")})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Podcast job %s failed", job_id)
+            j.update_job(job_id, status="failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"podcast-{title[:20]}").start()
+    return {"job_id": job["id"], "kind": "podcast"}
+
+
+@app.post("/podcasts/{podcast_id}/regenerate-async")
+async def regenerate_podcast_async(podcast_id: str, body: dict):
+    """Regenerate a podcast in the background as a /jobs item."""
+    import threading
+
+    from app.services import jobs
+
+    meta = MetadataStore()
+    try:
+        old = meta.get_podcast(podcast_id)
+        if old and old.get("audio_path"):
+            Path(old["audio_path"]).unlink(missing_ok=True)
+        if old:
+            meta.update_podcast(podcast_id, status="generating", audio_path=None)
+    finally:
+        meta.close()
+    if not old:
+        return JSONResponse(status_code=404, content={"error": "podcast not found"})
+
+    job = jobs.create_job(kind="podcast", label=f"Regenerate · {old['title']}",
+                          payload={"documents": len(old.get("document_ids") or [])})
+    body = body or {}
+    sp = body.get("system_prompt") or old.get("system_prompt")
+    ds = body.get("duration_setting") or old.get("duration_setting") or "medium"
+
+    def _run(job_id=job["id"]):
+        from app.services import jobs as j
+
+        def progress(done, total, action, message):
+            j.update_job(job_id, progress=(done / total) if total else None,
+                         message=f"{action} · {message}")
+        try:
+            from app.podcast.generate import generate_podcast
+            row = generate_podcast(
+                project_id=old["project_id"], document_ids=old["document_ids"],
+                title=old["title"], model=body.get("model") or None,
+                provider=body.get("provider") or None, system_prompt=sp,
+                duration_setting=ds, progress=progress,
+            )
+            j.finish(job_id, result={k: row.get(k) for k in
+                                     ("id", "title", "status", "duration_sec", "tts_provider", "error")})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Podcast regenerate job %s failed", job_id)
+            j.update_job(job_id, status="failed", error=str(exc))
+            m2 = MetadataStore()
+            try:
+                m2.update_podcast(podcast_id, status="error", error=str(exc))
+            finally:
+                m2.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job["id"], "podcast_id": podcast_id, "kind": "podcast"}
+
+
 @app.get("/podcasts/{podcast_id}")
 async def get_podcast(podcast_id: str):
     meta = MetadataStore()
