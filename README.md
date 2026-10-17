@@ -8,6 +8,10 @@
 > of the v1.x line is **tag [`v1.9.0`](https://github.com/Farazjz/Commentarium/releases/tag/v1.9.0)**
 > (development Phases 1–9 complete). Design source of truth:
 > [`docs/design/new-ui-mockup.html`](docs/design/new-ui-mockup.html).
+>
+> **v2 progress:** ✅ Settings & jobs API · ✅ SPA shell + live Dashboard ·
+> ✅ OCR API (`POST /ocr/extract`, `/ocr/output` management) — next: Library
+> and upload UX in the SPA.
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
