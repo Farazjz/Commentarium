@@ -521,6 +521,20 @@ async def delete_project(project_id: str):
 # Documents
 # ---------------------------------------------------------------------------
 
+@app.get("/documents")
+async def list_all_documents(project_id: str | None = None):
+    """All documents (across projects, newest first) or filtered by project.
+
+    Used by the v2 SPA Library view; the project-scoped route below stays
+    untouched.
+    """
+    meta = MetadataStore()
+    try:
+        return meta.list_documents(project_id or None)
+    finally:
+        meta.close()
+
+
 @app.get("/projects/{project_id}/documents")
 async def list_documents(project_id: str):
     meta = MetadataStore()

@@ -5,6 +5,7 @@ import { store } from "./store.js";
 import { el, icon, toast } from "./ui.js";
 import { VIEWS, currentView, render, onViewRender } from "./router.js";
 import { render as renderDashboard } from "./views/dashboard.js";
+import { render as renderLibrary, renderCtx as renderCtxLibrary } from "./views/library.js";
 import { renderPhase, renderCtxPhase } from "./views/phases.js";
 
 /* ============ theme ============ */
@@ -26,6 +27,8 @@ function renderView(view) {
 
   if (view === "dashboard") {
     renderDashboard(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
+  } else if (view === "library") {
+    renderLibrary(root).catch((e) => { console.error(e); toast(e.message || String(e), "err"); });
   } else {
     renderPhase(view, root);
   }
@@ -59,6 +62,8 @@ function renderCtx(view) {
       kvRow("Model / dims", idx ? `${idx.embedding_dim ?? "?"}d` : "…", !!idx),
     );
     ctx.append(panel);
+  } else if (view === "library") {
+    renderCtxLibrary(ctx);
   } else {
     renderCtxPhase(view, ctx);
   }
