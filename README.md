@@ -10,8 +10,9 @@
 > [`docs/design/new-ui-mockup.html`](docs/design/new-ui-mockup.html).
 >
 > **v2 progress:** ✅ Settings & jobs API · ✅ SPA shell + live Dashboard ·
-> ✅ OCR API (`POST /ocr/extract`, `/ocr/output` management) — next: Library
-> and upload UX in the SPA.
+> ✅ OCR API (`POST /ocr/extract`, `/ocr/output` management) ·
+> ✅ Library view (projects, document table, filters) — next: drag & drop
+> upload + ingest progress.
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
