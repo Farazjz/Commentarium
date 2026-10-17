@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.logging_setup import get_recent_logs, clear_logs, setup_logging
@@ -77,6 +78,8 @@ async def health():
     cfg = get_settings()
     return {
         "status": "ok",
+        "version": app.version,
+        "port": cfg.port,
         "has_openrouter_key": cfg.has_openrouter_key,
         "embedding_backend": cfg.embedding_backend,
         "ocr_backend": cfg.ocr_backend,
@@ -110,6 +113,164 @@ async def settings_summary():
         "cf_model": cfg.cf_model,
         "google_language_code": cfg.google_language_code,
         "podcast_num_hosts": cfg.podcast_num_hosts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Settings v2 – full configuration surface for the SPA
+# (additive to /settings/summary, which stays untouched)
+# ---------------------------------------------------------------------------
+
+@app.get("/settings")
+async def get_full_settings():
+    """Full settings snapshot; secrets are masked ("abcd••••wxyz")."""
+    from app.services.settings_io import full_settings
+
+    return full_settings()
+
+
+@app.patch("/settings")
+async def patch_settings(body: dict):
+    """Persist whitelisted settings to .env (+ live env) and re-cache config.
+
+    Body: {"updates": {"CHAT_MODEL": "...", ...}} (flat {"KEY": val} also accepted).
+    Unknown/non-whitelisted keys are rejected with HTTP 400.
+    """
+    from app.services.settings_io import full_settings, update_env
+
+    updates = None
+    if isinstance(body, dict):
+        if isinstance(body.get("updates"), dict):
+            updates = body["updates"]
+        else:
+            updates = {k: v for k, v in body.items() if k.isupper() and isinstance(v, (str, int, float, bool))}
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "no settings keys supplied"})
+    try:
+        applied = update_env(updates)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return {"status": "saved", "applied": applied, "settings": full_settings()}
+
+
+@app.post("/settings/test-connection")
+async def settings_test_connection(body: dict):
+    """Test gateway credentials the user has typed but not yet saved."""
+    from app.models_openrouter import test_connection
+
+    return test_connection(api_key=body.get("api_key"), base_url=body.get("base_url"))
+
+
+@app.get("/settings/models")
+async def settings_models(api_key: str | None = None, base_url: str | None = None):
+    """Model list from the gateway (optionally with unsaved credentials)."""
+    from app.models_openrouter import fetch_models
+
+    models = fetch_models(api_key=api_key, base_url=base_url)
+    return {"count": len(models), "models": models}
+
+
+# ---------------------------------------------------------------------------
+# Jobs – progress for long-running operations (ingest / podcast / OCR)
+# ---------------------------------------------------------------------------
+
+@app.get("/jobs")
+async def jobs_list():
+    from app.services import jobs
+
+    return {"count": len(jobs.list_jobs()), "jobs": jobs.list_jobs()}
+
+
+@app.get("/jobs/{job_id}")
+async def jobs_get(job_id: str):
+    from app.services import jobs
+
+    job = jobs.get_job(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "job not found"})
+    return job
+
+
+@app.post("/jobs/{job_id}/cancel")
+async def jobs_cancel(job_id: str):
+    from app.services import jobs
+
+    return {"requested": jobs.request_cancel(job_id)}
+
+
+# ---------------------------------------------------------------------------
+# Activity feed – recent documents & podcast episodes (Dashboard)
+# ---------------------------------------------------------------------------
+
+@app.get("/activity")
+async def activity(limit: int = 20):
+    meta = MetadataStore()
+    try:
+        docs = meta.list_documents()
+        pods = meta.list_podcasts()
+    finally:
+        meta.close()
+
+    items = []
+    for d in docs:
+        items.append(
+            {
+                "kind": "document",
+                "title": d.get("filename") or "",
+                "detail": d.get("status") or "",
+                "pages": d.get("page_count") or 0,
+                "project_id": d.get("project_id") or "",
+                "when": d.get("created_at") or "",
+            }
+        )
+    for p in pods:
+        items.append(
+            {
+                "kind": "podcast",
+                "title": p.get("title") or "",
+                "detail": p.get("status") or "",
+                "duration": p.get("duration_sec") or 0,
+                "tts_provider": p.get("tts_provider") or "",
+                "project_id": p.get("project_id") or "",
+                "when": p.get("created_at") or "",
+            }
+        )
+    items = [i for i in items if i["when"]]
+    items.sort(key=lambda i: i["when"], reverse=True)
+    return {"count": len(items[: max(1, min(limit, 100))]), "items": items[: max(1, min(limit, 100))]}
+
+
+# ---------------------------------------------------------------------------
+# Citations export – bibliography text download (APA 7 / Vancouver)
+# ---------------------------------------------------------------------------
+
+@app.get("/citations/export")
+async def citations_export(style: str = "apa", project_id: str | None = None):
+    from app.citations.formatters import format_reference
+    from app.citations.service import list_verified_documents
+
+    style = style.lower().strip()
+    if style not in ("apa", "vancouver"):
+        style = "apa"
+
+    docs = [
+        d for d in list_verified_documents()
+        if not project_id or d.get("project_id") == project_id
+    ]
+    # only documents with enough verified metadata to make a real reference
+    docs = [d for d in docs if (d.get("title") or d.get("journal"))]
+    refs = [format_reference(d, style) for d in docs]
+    if style == "vancouver":
+        refs = [f"{i}. {r}" for i, r in enumerate(refs, start=1)]
+    else:
+        refs = sorted(refs, key=str.lower)
+    text = "\n\n".join(refs)
+    return {
+        "style": style,
+        "count": len(refs),
+        "references": refs,
+        "project_id": project_id,
+        "text": text,
     }
 
 
@@ -730,6 +891,25 @@ async def shutdown_api():
 
     shutdown_async()  # sleeps briefly so this response returns before dying
     return {"status": "shutting_down", "message": "API and UI servers will stop."}
+
+
+# ---------------------------------------------------------------------------
+# v2.0 SPA – "Research Studio" web UI, served by the same process
+# ---------------------------------------------------------------------------
+
+_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+if (_WEB_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="spa")
+else:
+    @app.get("/")
+    async def spa_placeholder():
+        """API-only mode while the SPA files are not built yet (web/)."""
+        return {
+            "status": "ok",
+            "version": app.version,
+            "message": "API is ready. The v2.0 SPA (web/) is not built yet – "
+                       "UI_PORT (Streamlit legacy) or /docs can be used meanwhile.",
+        }
 
 
 # ---------------------------------------------------------------------------

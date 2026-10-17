@@ -103,7 +103,11 @@ def test_connection(*, api_key: str | None = None, base_url: str | None = None) 
         return {"ok": False, "error": str(exc)}
 
 
-def fetch_models() -> list[dict]:
+def fetch_models(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> list[dict]:
     """Return the list of available models with capability hints.
 
     Handles both the official OpenRouter schema (top-level `text`/`vision`
@@ -117,13 +121,16 @@ def fetch_models() -> list[dict]:
 
     Used to populate the Settings dropdowns. Returns [] on any failure.
     """
+    cfg = get_settings()
+    use_key = (api_key or "").strip() or cfg.openrouter_api_key
+    use_url = (base_url or "").strip() or cfg.openrouter_base_url
     try:
         from app.httpclient import get_client
 
         with get_client(timeout=30) as client:
             resp = client.get(
-                f"{get_settings().openrouter_base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {get_settings().openrouter_api_key}"},
+                f"{use_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {use_key}"},
             )
         resp.raise_for_status()
         data = resp.json().get("data", [])
