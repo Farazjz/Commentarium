@@ -10,9 +10,8 @@
 > [`docs/design/new-ui-mockup.html`](docs/design/new-ui-mockup.html).
 >
 > **v2 progress:** ✅ Settings & jobs API · ✅ SPA shell + live Dashboard ·
-> ✅ OCR API · ✅ Library view (projects, document table, filters) ·
-> ✅ Drag & drop upload with live ingest progress — next: Chat with
-> citation chips.
+> ✅ OCR API · ✅ Library view + upload with live ingest ·
+> ✅ Chat with live sources panel & citations — next: Citations workflow.
 
 A **local** research assistant for your MSc biotechnology thesis. Upload **PDF** and
 **Word** documents, chat over them with the AI model of your choice, and get
