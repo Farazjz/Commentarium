@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commentarium · Research Studio UI</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; display: grid; place-items: center;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    background: #0f0d15; color: #e8e4f2; padding: 24px; text-align: center;
+  }
+  .card { max-width: 640px; }
+  .logo { font-size: 44px; }
+  h1 { font-size: 30px; margin: 14px 0 6px; }
+  .grad {
+    background: linear-gradient(90deg, #2dd4bf, #8b5cf6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  p.sub { color: #9a93a8; font-size: 15px; line-height: 1.6; margin-bottom: 28px; }
+  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  a.btn {
+    display: inline-block; padding: 12px 22px; border-radius: 12px;
+    text-decoration: none; font-weight: 600; font-size: 15px; border: 1px solid #2a2638;
+    color: #e8e4f2; background: #17131f; transition: transform .12s ease, filter .12s ease;
+  }
+  a.btn:hover { transform: translateY(-1px); filter: brightness(1.15); }
+  a.btn.primary {
+    background: linear-gradient(90deg, #2dd4bf, #8b5cf6); color: #17131f; border: none;
+  }
+  .note { margin-top: 26px; color: #6f6880; font-size: 12.5px; line-height: 1.6; }
+  .shot {
+    display: block; margin: 26px auto 0; max-width: 100%; border-radius: 14px;
+    border: 1px solid #2a2638;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🧬</div>
+    <h1>Commentarium <span class="grad">Research Studio</span></h1>
+    <p class="sub">A local, privacy-first research assistant for your literature —
+    chat over your papers with page-level citations, generate NotebookLM-style
+    podcasts, OCR scans into Markdown, and export APA&nbsp;7 / Vancouver bibliographies.</p>
+    <div class="btns">
+      <a class="btn primary" href="design/new-ui-mockup.html">▶ Open the UI demo</a>
+      <a class="btn" href="https://github.com/Farazjz/Commentarium">GitHub repo</a>
+      <a class="btn" href="https://github.com/Farazjz/Commentarium/releases">Releases</a>
+    </div>
+    <p class="note">
+      This site is a <b>static design preview</b> of the app's interface with sample data —
+      nothing here calls a backend or stores anything. The real application runs on your
+      machine: download it from the Releases page and start <b>run.bat</b>.
+    </p>
+    <img class="shot" src="design/mockup-preview.png" alt="Commentarium Research Studio UI preview">
+  </div>
+</body>
+</html>

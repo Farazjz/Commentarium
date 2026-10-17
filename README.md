@@ -6,8 +6,9 @@
 > frontend: a dark/light single-page app served by the **same FastAPI backend**
 > (Streamlit remains available as a legacy fallback). The current stable release
 > of the v1.x line is **tag [`v1.9.0`](https://github.com/Farazjz/Commentarium/releases/tag/v1.9.0)**
-> (development Phases 1–9 complete). Design source of truth:
-> [`docs/design/new-ui-mockup.html`](docs/design/new-ui-mockup.html).
+> (development Phases 1–9 complete). 🎨 **Live UI demo:**
+> **[farazjz.github.io/Commentarium](https://farazjz.github.io/Commentarium/)** —
+> static design preview of the SPA (fake data, no backend).
 >
 > **v2 progress:** ✅ Settings & jobs API · ✅ SPA shell + live Dashboard ·
 > ✅ OCR API · ✅ Library view + upload with live ingest ·
@@ -27,6 +28,12 @@ Built as a lean, thesis-focused alternative to
 entirely on your machine, using your own **OpenAI-compatible** API key — any
 online router (OpenRouter, Gemini, OpenAI…) **or a fully local AI** (LM Studio,
 Ollama, vLLM, LiteLLM…).
+
+<p align="center">
+  <a href="https://farazjz.github.io/Commentarium/">
+    <img src="docs/design/mockup-preview.png" alt="Commentarium v2 Research Studio UI — live demo on GitHub Pages" width="100%">
+  </a>
+</p>
 
 ---
 
