@@ -4,14 +4,17 @@ import { api } from "../api.js";
 import { store } from "../store.js";
 import { el, icon, rel, toast } from "../ui.js";
 import { go } from "../router.js";
+import { queueAdd, queueCard, tagsModal, uploadModal } from "./ingest.js";
 
 const STATUS_META = {
   indexed: { chip: "st-ok", label: "Indexed" },
   error: { chip: "st-err", label: "Error" },
   pending: { chip: "st-warn", label: "Pending" },
   parsing: { chip: "st-info", label: "Parsing" },
-  ocr: { chip: "st-info", label: "OCR" },
+  chunking: { chip: "st-info", label: "Chunking" },
   embedding: { chip: "st-info", label: "Embedding" },
+  indexing: { chip: "st-info", label: "Indexing" },
+  ocr: { chip: "st-info", label: "OCR" },
 };
 
 const parseJson = (s) => {
@@ -55,7 +58,7 @@ function newProjectModal(onCreated) {
 }
 
 /* ---------- document table ---------- */
-function docTable(docs, { search, onSearch, statusFilter, onStatus, tags, activeTags, onTag, projectMode }) {
+function docTable(docs, { search, onSearch, statusFilter, onStatus, tags, activeTags, onTag, projectMode, onAction }) {
   const q = search.trim().toLowerCase();
   const filtered = docs.filter((d) => {
     if (statusFilter !== "all" && (d.status || "pending") !== statusFilter) return false;
@@ -112,10 +115,12 @@ function docTable(docs, { search, onSearch, statusFilter, onStatus, tags, active
         : el("span", { class: "countchip" }, "—")),
       el("td", { class: "countchip" }, rel(d.created_at)),
       el("td", {},
+        el("span", { class: "ibtn", title: "Edit tags", onclick: () => onAction(d, "tags") }, icon("edit")),
+        el("span", { class: "ibtn", title: "Re-index", onclick: () => onAction(d, "reindex") }, icon("refresh")),
+        el("span", { class: "ibtn", title: "Delete document", style: "color:var(--err)",
+          onclick: () => onAction(d, "delete") }, icon("trash")),
         el("span", { class: "ibtn", title: "Chat with sources (arrives in P6)",
-          onclick: () => go("chat") }, icon("chat")),
-        el("span", { class: "ibtn", title: "Verify citation (arrives in P7)",
-          onclick: () => go("citations") }, icon("quote"))),
+          onclick: () => go("chat") }, icon("chat"))),
     );
   });
 
@@ -180,7 +185,13 @@ export async function render(root) {
         ? el("button", { class: "btn sm", onclick: () => { store.set("libProject", null); go("library"); } },
             icon("home"), "All documents")
         : el("span"),
-      el("button", { class: "btn sm", onclick: () => toast("Drag & drop upload arrives in P5", "info") }, icon("up"), "Upload"),
+      el("button", {
+        class: "btn sm",
+        onclick: () => uploadModal({
+          projects: projects || [],
+          defaultProject: store.get("libProject") || (projects && projects[0] && projects[0].id),
+        }),
+      }, icon("up"), "Upload"),
       el("button", { class: "btn sm", onclick: () => newProjectModal(() => refresh()) }, icon("plus"), "New project"))));
 
   const body = el("div");
@@ -200,6 +211,8 @@ export async function render(root) {
 
   function draw() {
     body.textContent = "";
+    const qc = queueCard();
+    if (qc) body.append(qc);
     const sel = store.get("libProject");
     if (!sel) {
       body.append(projectCards(projects || [], null, (id) => {
@@ -215,10 +228,27 @@ export async function render(root) {
         draw();
       },
       projectMode: !!sel,
+      onAction: handleAction,
     });
     body.append(toolbar, table);
   }
   draw();
+
+  async function handleAction(d, act) {
+    if (act === "tags") {
+      tagsModal(d, () => go("library"));
+    } else if (act === "reindex") {
+      try {
+        const r = await api.post(`/documents/${encodeURIComponent(d.id)}/ingest-async?ocr_mode=auto`);
+        queueAdd([{ job_id: r.job_id, doc_id: d.id, filename: d.filename, mode: "auto" }]);
+        toast(`Re-index queued — ${d.filename}`, "ok");
+      } catch (e) { toast(e.message, "err"); }
+    } else if (act === "delete") {
+      if (!confirm(`Delete “${d.filename}”?\n\nIts chunks, stored file and summaries are removed.`)) return;
+      try { await api.del(`/documents/${encodeURIComponent(d.id)}`); toast("Document deleted", "ok"); go("library"); }
+      catch (e) { toast(e.message, "err"); }
+    }
+  }
 
   /* entering a project re-fetches scoped docs; leaving shows all */
   function rerenderProject() { go("library"); }

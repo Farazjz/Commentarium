@@ -38,6 +38,7 @@ export const api = {
   patch: (path, body) =>
     request(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   del: (path) => request(path, { method: "DELETE" }),
+  upload: (path, formData) => request(path, { method: "POST", body: formData }),
 };
 
 export const loadAll = async (...calls) => {

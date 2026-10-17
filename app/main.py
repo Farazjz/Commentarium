@@ -577,6 +577,71 @@ async def ingest_endpoint(document_id: str, reindex: bool = False, ocr: bool | N
         return JSONResponse(status_code=400, content={"error": str(exc)})
 
 
+@app.post("/documents/{document_id}/ingest-async")
+async def ingest_async(document_id: str, ocr_mode: str = "auto"):
+    """(Re)index a document as a background job; poll GET /jobs/{id}.
+
+    `ocr_mode`: auto (configured default) | direct (text only) | ocr (force).
+    """
+    import threading
+
+    from app.services import jobs
+
+    try:
+        ocr = _ocr_flag(ocr_mode)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    meta = MetadataStore()
+    try:
+        doc = meta.get_document(document_id)
+    finally:
+        meta.close()
+    if not doc:
+        return JSONResponse(status_code=404, content={"error": "document not found"})
+
+    job = jobs.create_job(kind="ingest", label=f"Ingest · {doc['filename']}",
+                          payload={"document_id": document_id, "ocr_mode": (ocr_mode or "auto"), "reindex": True})
+    threading.Thread(target=_run_ingest_job, args=(job["id"], document_id),
+                     kwargs={"ocr": ocr, "reindex": True}, daemon=True).start()
+    return {"job_id": job["id"], "kind": "ingest", "document": doc}
+
+
+@app.post("/projects/{project_id}/ingest-async")
+async def upload_and_ingest_async(
+    project_id: str,
+    file: UploadFile = File(...),
+    ocr_mode: str = Form("auto"),
+):
+    """Store an upload and (re)index it in the background as a /jobs item.
+
+    Returns `{job_id, document}` immediately; the document row appears in the
+    library right away (status pending → parsing → embedding → indexed) and
+    the SPA polls its status live.
+    """
+    import threading
+
+    from app.services import jobs
+
+    try:
+        ocr = _ocr_flag(ocr_mode)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    content = await file.read()
+    try:
+        doc = store_upload(project_id, content, file.filename or "unnamed")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Upload for ingest failed")
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    job = jobs.create_job(kind="ingest", label=f"Ingest · {doc['filename']}",
+                          payload={"document_id": doc["id"], "ocr_mode": (ocr_mode or "auto"), "reindex": False})
+    threading.Thread(target=_run_ingest_job, args=(job["id"], doc["id"]),
+                     kwargs={"ocr": ocr, "reindex": False}, daemon=True).start()
+    return {"job_id": job["id"], "kind": "ingest", "document": doc}
+
+
 @app.post("/projects/{project_id}/upload-and-ingest")
 async def upload_and_ingest(project_id: str, file: UploadFile = File(...), ocr: bool | None = None):
     """Store an upload and immediately ingest it with the chosen mode."""
@@ -593,6 +658,46 @@ async def upload_and_ingest(project_id: str, file: UploadFile = File(...), ocr: 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Upload+ingest failed")
         return JSONResponse(status_code=400, content={"error": str(exc), "document": doc})
+
+
+# ---------------------------------------------------------------------------
+# Async ingest (v2 SPA) — background jobs so the UI stays responsive
+# ---------------------------------------------------------------------------
+
+_OCR_MODES = ("auto", "direct", "ocr")
+
+
+def _ocr_flag(ocr_mode: str) -> bool | None:
+    """'auto' | 'direct' | 'ocr' -> None | False | True (pipeline convention)."""
+    mode = (ocr_mode or "auto").strip().lower()
+    if mode == "direct":
+        return False
+    if mode == "ocr":
+        return True
+    if mode in _OCR_MODES:
+        return None
+    raise ValueError(f"ocr_mode must be one of {', '.join(_OCR_MODES)}")
+
+
+def _run_ingest_job(job_id: str, document_id: str, *, ocr: bool | None, reindex: bool = False) -> None:
+    """Worker thread: run the full pipeline as a /jobs item."""
+    from app.ingest import pipeline
+    from app.services import jobs
+
+    try:
+        meta = MetadataStore()
+        try:
+            doc = meta.get_document(document_id)
+        finally:
+            meta.close()
+        label = doc["filename"] if doc else document_id
+        jobs.update_job(job_id, status="running", progress=None, message=f"Indexing {label}…")
+        summary = pipeline.ingest_document(document_id, reindex=reindex, ocr=ocr)
+        jobs.finish(job_id, result=summary)
+        logger.info("Ingest job %s completed for %s (%d chunks)", job_id, label, summary["chunks"])
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Ingest job %s failed for %s", job_id, document_id)
+        jobs.update_job(job_id, status="failed", error=str(exc))
 
 
 @app.delete("/documents/{document_id}")
