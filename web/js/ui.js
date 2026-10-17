@@ -23,6 +23,18 @@ export const icon = (id, cls = "icon") => {
   return s;
 };
 
+/* Full-page notice shown after the servers have been asked to shut down
+   (used by the rail exit button, the dashboard quick action and the
+   Settings danger zone). Replaces the app so fetch failures from the
+   dying server don't leave a frozen page behind. */
+export function shutdownScreen() {
+  document.body.innerHTML =
+    "<div style='display:grid;place-items:center;min-height:100vh;background:#0f0d15;" +
+    "font-family:Inter,system-ui;color:#9a93a8;text-align:center'>" +
+    "<div>Servers stopped — relaunch Commentarium to continue." +
+    "<br><small style='opacity:.7'>You can close this tab.</small></div></div>";
+}
+
 export function toast(message, type = "info", ms = 4200) {
   let holder = document.querySelector(".toasts");
   if (!holder) {

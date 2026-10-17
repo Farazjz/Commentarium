@@ -1,7 +1,7 @@
 /* Dashboard — fully live: stats, system status, checklist, activity feed. */
 import { api, loadAll } from "../api.js";
 import { store } from "../store.js";
-import { el, icon, rel, fmtDur, toast } from "../ui.js";
+import { el, icon, rel, fmtDur, toast, shutdownScreen } from "../ui.js";
 import { go } from "../router.js";
 
 const CHECK_KEY = "cm-v2-checks";
@@ -81,10 +81,7 @@ export async function render(root) {
           if (!confirm("Shut down the Commentarium servers?\nUnsaved edits and running jobs will be lost.")) return;
           if (!confirm("Are you sure? The SPA and API stop until you launch Commentarium again.")) return;
           try { await api.post("/shutdown", {}); } catch { /* server dies mid-call */ }
-          document.body.innerHTML =
-            "<div style='display:grid;place-items:center;height:100vh;font-family:Inter,system-ui'>" +
-            "<div style='text-align:center;color:#888'>Servers stopped — relaunch Commentarium to continue." +
-            "<br><small>You can close this tab.</small></div></div>";
+          shutdownScreen();
         } }, icon("power"), "Exit & shut down"),
       ),
     ),

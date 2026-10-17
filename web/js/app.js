@@ -2,7 +2,7 @@
    context panel, guard banner, command palette, exit button. */
 import { api } from "./api.js";
 import { store } from "./store.js";
-import { el, icon, toast } from "./ui.js";
+import { el, icon, toast, shutdownScreen } from "./ui.js";
 import { VIEWS, currentView, render, onViewRender, go } from "./router.js";
 import { render as renderDashboard } from "./views/dashboard.js";
 import { render as renderLibrary, renderCtx as renderCtxLibrary } from "./views/library.js";
@@ -206,7 +206,8 @@ function runPaletteAct(act) {
 /* ============ exit ============ */
 async function exitApp() {
   if (!confirm("Shut down the Commentarium API server?\n\nThe web UI will go offline too.")) return;
-  try { await api.post("/shutdown"); toast("Shutting down…", "ok"); } catch (e) { toast(e.message, "err"); }
+  try { await api.post("/shutdown"); } catch { /* server dies mid-call - expected */ }
+  shutdownScreen();
 }
 
 /* ============ boot ============ */

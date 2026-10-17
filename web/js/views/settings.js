@@ -3,7 +3,7 @@
    danger zone with server shutdown. */
 import { api } from "../api.js";
 import { store } from "../store.js";
-import { el, icon, toast } from "../ui.js";
+import { el, icon, toast, shutdownScreen } from "../ui.js";
 import { go } from "../router.js";
 
 /* field meta: [ENV_KEY, friendly label, kind]
@@ -228,7 +228,7 @@ export async function render(root) {
           if (!confirm("Shut down the Commentarium servers?\nUnsaved Settings edits and running jobs will be lost.")) return;
           if (!confirm("Are you sure? The SPA and API stop until you launch Commentarium again.")) return;
           try { await api.post("/shutdown", {}); } catch { /* server dies mid-call */ }
-          document.body.innerHTML = "<div style='display:grid;place-items:center;height:100vh;font-family:Inter,system-ui;color:var(--dim,gray)'><div>Servers stopped — relaunch Commentarium to continue.<br><small>You can close this tab.</small></div></div>";
+          shutdownScreen();
         } }, icon("power"), "Shut down Commentarium")),
       el("span", { class: "v", style: "color:var(--dim);font-weight:400" },
         `API :${snap._port || 8010} + UI - stops both processes cleanly.`))));
