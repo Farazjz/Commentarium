@@ -275,6 +275,109 @@ async def citations_export(style: str = "apa", project_id: str | None = None):
 
 
 # ---------------------------------------------------------------------------
+# OCR to Markdown (v2 API surface – ported from the Streamlit OCR page)
+# ---------------------------------------------------------------------------
+
+@app.post("/ocr/extract")
+async def ocr_extract(
+    file: UploadFile = File(...),
+    backend: str = Form(""),
+    force_ocr: bool = Form(False),
+    dpi: int = Form(200),
+    model: str = Form(""),
+):
+    """Extract Markdown from one PDF or image as a background job.
+
+    Returns a job id immediately; poll GET /jobs/{id} for progress
+    (per page) and the result (markdown + saved file name).
+    """
+    import threading
+
+    from app.config import get_settings as _gs
+    from app.services import jobs
+    from app.services.ocr_service import extract_and_save
+
+    cfg = _gs()
+    use_backend = (backend or "").strip().lower() or (cfg.ocr_backend if cfg.ocr_backend in
+                    ("tesseract", "vision", "paddleocr-vl", "teleocr") else "tesseract")
+    use_model = (model or "").strip() or (cfg.chat_model if use_backend == "vision" else "")
+
+    filename = file.filename or "output.pdf"
+    data = await file.read()
+
+    job = jobs.create_job(
+        kind="ocr",
+        label=f"OCR · {filename}",
+        payload={"backend": use_backend, "force_ocr": bool(force_ocr), "dpi": int(dpi),
+                 "model": use_model or None, "filename": filename, "size": len(data)},
+    )
+
+    def _run(job_id=job["id"]):
+        from app.services.ocr_service import OCRCancelled
+
+        try:
+            jobs.update_job(job_id, status="running", progress=0.0, message=f"Processing {filename}…")
+            result = extract_and_save(
+                data, filename, backend=use_backend, force_ocr=bool(force_ocr),
+                dpi=int(dpi), model=use_model or None,
+                progress_cb=lambda p, msg: jobs.update_job(job_id, progress=p, message=msg),
+                cancel=jobs.cancel_event(job_id),
+            )
+            jobs.finish(job_id, result=result)
+            logger.info("OCR job %s completed: %s (%d pages)", job_id, result["saved_name"], result["pages"])
+        except OCRCancelled:
+            logger.info("OCR job %s cancelled", job_id)
+            jobs.update_job(job_id, status="cancelled", error="cancelled by user")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("OCR job %s failed: %s", job_id, exc)
+            jobs.update_job(job_id, status="failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"ocr-{filename}").start()
+    return {"job_id": job["id"], "kind": "ocr", "filename": filename, "backend": use_backend}
+
+
+@app.get("/ocr/output")
+async def ocr_output_list():
+    """Saved .md files in data/ocr_output (newest first)."""
+    from app.services.ocr_service import list_output
+
+    return {"count": len(list_output()), "files": list_output()}
+
+
+@app.get("/ocr/output/{name}/content")
+async def ocr_output_content(name: str):
+    """Markdown text of one saved file (for the Rendered/Raw preview tabs)."""
+    from app.services.ocr_service import read_output
+
+    text = read_output(name)
+    if text is None:
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return {"name": name, "content": text}
+
+
+@app.get("/ocr/output/{name}")
+async def ocr_output_download(name: str):
+    """Download one saved .md file."""
+    from fastapi.responses import FileResponse
+
+    from app.services.ocr_service import output_path
+
+    path = output_path(name)
+    if not path:
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return FileResponse(path, media_type="text/markdown", filename=name)
+
+
+@app.delete("/ocr/output/{name}")
+async def ocr_output_delete(name: str):
+    from app.services.ocr_service import delete_output
+
+    if not delete_output(name):
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return {"deleted": name}
+
+
+# ---------------------------------------------------------------------------
 # Logs
 # ---------------------------------------------------------------------------
 
