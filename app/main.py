@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.logging_setup import get_recent_logs, clear_logs, setup_logging
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Commentarium API",
     description="RAG system for thesis research – upload PDFs & Word docs, chat with them, get accurate citations.",
-    version="0.1.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -77,6 +78,8 @@ async def health():
     cfg = get_settings()
     return {
         "status": "ok",
+        "version": app.version,
+        "port": cfg.port,
         "has_openrouter_key": cfg.has_openrouter_key,
         "embedding_backend": cfg.embedding_backend,
         "ocr_backend": cfg.ocr_backend,
@@ -111,6 +114,267 @@ async def settings_summary():
         "google_language_code": cfg.google_language_code,
         "podcast_num_hosts": cfg.podcast_num_hosts,
     }
+
+
+# ---------------------------------------------------------------------------
+# Settings v2 – full configuration surface for the SPA
+# (additive to /settings/summary, which stays untouched)
+# ---------------------------------------------------------------------------
+
+@app.get("/settings")
+async def get_full_settings():
+    """Full settings snapshot; secrets are masked ("abcd••••wxyz")."""
+    from app.services.settings_io import full_settings
+
+    return full_settings()
+
+
+@app.patch("/settings")
+async def patch_settings(body: dict):
+    """Persist whitelisted settings to .env (+ live env) and re-cache config.
+
+    Body: {"updates": {"CHAT_MODEL": "...", ...}} (flat {"KEY": val} also accepted).
+    Unknown/non-whitelisted keys are rejected with HTTP 400.
+    """
+    from app.services.settings_io import full_settings, update_env
+
+    updates = None
+    if isinstance(body, dict):
+        if isinstance(body.get("updates"), dict):
+            updates = body["updates"]
+        else:
+            updates = {k: v for k, v in body.items() if k.isupper() and isinstance(v, (str, int, float, bool))}
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "no settings keys supplied"})
+    try:
+        applied = update_env(updates)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return {"status": "saved", "applied": applied, "settings": full_settings()}
+
+
+@app.post("/settings/test-connection")
+async def settings_test_connection(body: dict):
+    """Test gateway credentials the user has typed but not yet saved."""
+    from app.models_openrouter import test_connection
+
+    return test_connection(api_key=body.get("api_key"), base_url=body.get("base_url"))
+
+
+@app.get("/settings/models")
+async def settings_models(api_key: str | None = None, base_url: str | None = None):
+    """Model list from the gateway (optionally with unsaved credentials)."""
+    from app.models_openrouter import fetch_models
+
+    models = fetch_models(api_key=api_key, base_url=base_url)
+    return {"count": len(models), "models": models}
+
+
+# ---------------------------------------------------------------------------
+# Jobs – progress for long-running operations (ingest / podcast / OCR)
+# ---------------------------------------------------------------------------
+
+@app.get("/jobs")
+async def jobs_list():
+    from app.services import jobs
+
+    return {"count": len(jobs.list_jobs()), "jobs": jobs.list_jobs()}
+
+
+@app.get("/jobs/{job_id}")
+async def jobs_get(job_id: str):
+    from app.services import jobs
+
+    job = jobs.get_job(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "job not found"})
+    return job
+
+
+@app.post("/jobs/{job_id}/cancel")
+async def jobs_cancel(job_id: str):
+    from app.services import jobs
+
+    return {"requested": jobs.request_cancel(job_id)}
+
+
+# ---------------------------------------------------------------------------
+# Activity feed – recent documents & podcast episodes (Dashboard)
+# ---------------------------------------------------------------------------
+
+@app.get("/activity")
+async def activity(limit: int = 20):
+    meta = MetadataStore()
+    try:
+        docs = meta.list_documents()
+        pods = meta.list_podcasts()
+    finally:
+        meta.close()
+
+    items = []
+    for d in docs:
+        items.append(
+            {
+                "kind": "document",
+                "title": d.get("filename") or "",
+                "detail": d.get("status") or "",
+                "pages": d.get("page_count") or 0,
+                "project_id": d.get("project_id") or "",
+                "when": d.get("created_at") or "",
+            }
+        )
+    for p in pods:
+        items.append(
+            {
+                "kind": "podcast",
+                "title": p.get("title") or "",
+                "detail": p.get("status") or "",
+                "duration": p.get("duration_sec") or 0,
+                "tts_provider": p.get("tts_provider") or "",
+                "project_id": p.get("project_id") or "",
+                "when": p.get("created_at") or "",
+            }
+        )
+    items = [i for i in items if i["when"]]
+    items.sort(key=lambda i: i["when"], reverse=True)
+    return {"count": len(items[: max(1, min(limit, 100))]), "items": items[: max(1, min(limit, 100))]}
+
+
+# ---------------------------------------------------------------------------
+# Citations export – bibliography text download (APA 7 / Vancouver)
+# ---------------------------------------------------------------------------
+
+@app.get("/citations/export")
+async def citations_export(style: str = "apa", project_id: str | None = None):
+    from app.citations.formatters import format_reference
+    from app.citations.service import list_verified_documents
+
+    style = style.lower().strip()
+    if style not in ("apa", "vancouver"):
+        style = "apa"
+
+    docs = [
+        d for d in list_verified_documents()
+        if not project_id or d.get("project_id") == project_id
+    ]
+    # only documents with enough verified metadata to make a real reference
+    docs = [d for d in docs if (d.get("title") or d.get("journal"))]
+    refs = [format_reference(d, style) for d in docs]
+    if style == "vancouver":
+        refs = [f"{i}. {r}" for i, r in enumerate(refs, start=1)]
+    else:
+        refs = sorted(refs, key=str.lower)
+    text = "\n\n".join(refs)
+    return {
+        "style": style,
+        "count": len(refs),
+        "references": refs,
+        "project_id": project_id,
+        "text": text,
+    }
+
+
+# ---------------------------------------------------------------------------
+# OCR to Markdown (v2 API surface – ported from the Streamlit OCR page)
+# ---------------------------------------------------------------------------
+
+@app.post("/ocr/extract")
+async def ocr_extract(
+    file: UploadFile = File(...),
+    backend: str = Form(""),
+    force_ocr: bool = Form(False),
+    dpi: int = Form(200),
+    model: str = Form(""),
+):
+    """Extract Markdown from one PDF or image as a background job.
+
+    Returns a job id immediately; poll GET /jobs/{id} for progress
+    (per page) and the result (markdown + saved file name).
+    """
+    import threading
+
+    from app.config import get_settings as _gs
+    from app.services import jobs
+    from app.services.ocr_service import extract_and_save
+
+    cfg = _gs()
+    use_backend = (backend or "").strip().lower() or (cfg.ocr_backend if cfg.ocr_backend in
+                    ("tesseract", "vision", "paddleocr-vl", "teleocr") else "tesseract")
+    use_model = (model or "").strip() or (cfg.chat_model if use_backend == "vision" else "")
+
+    filename = file.filename or "output.pdf"
+    data = await file.read()
+
+    job = jobs.create_job(
+        kind="ocr",
+        label=f"OCR · {filename}",
+        payload={"backend": use_backend, "force_ocr": bool(force_ocr), "dpi": int(dpi),
+                 "model": use_model or None, "filename": filename, "size": len(data)},
+    )
+
+    def _run(job_id=job["id"]):
+        from app.services.ocr_service import OCRCancelled
+
+        try:
+            jobs.update_job(job_id, status="running", progress=0.0, message=f"Processing {filename}…")
+            result = extract_and_save(
+                data, filename, backend=use_backend, force_ocr=bool(force_ocr),
+                dpi=int(dpi), model=use_model or None,
+                progress_cb=lambda p, msg: jobs.update_job(job_id, progress=p, message=msg),
+                cancel=jobs.cancel_event(job_id),
+            )
+            jobs.finish(job_id, result=result)
+            logger.info("OCR job %s completed: %s (%d pages)", job_id, result["saved_name"], result["pages"])
+        except OCRCancelled:
+            logger.info("OCR job %s cancelled", job_id)
+            jobs.update_job(job_id, status="cancelled", error="cancelled by user")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("OCR job %s failed: %s", job_id, exc)
+            jobs.update_job(job_id, status="failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"ocr-{filename}").start()
+    return {"job_id": job["id"], "kind": "ocr", "filename": filename, "backend": use_backend}
+
+
+@app.get("/ocr/output")
+async def ocr_output_list():
+    """Saved .md files in data/ocr_output (newest first)."""
+    from app.services.ocr_service import list_output
+
+    return {"count": len(list_output()), "files": list_output()}
+
+
+@app.get("/ocr/output/{name}/content")
+async def ocr_output_content(name: str):
+    """Markdown text of one saved file (for the Rendered/Raw preview tabs)."""
+    from app.services.ocr_service import read_output
+
+    text = read_output(name)
+    if text is None:
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return {"name": name, "content": text}
+
+
+@app.get("/ocr/output/{name}")
+async def ocr_output_download(name: str):
+    """Download one saved .md file."""
+    from fastapi.responses import FileResponse
+
+    from app.services.ocr_service import output_path
+
+    path = output_path(name)
+    if not path:
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return FileResponse(path, media_type="text/markdown", filename=name)
+
+
+@app.delete("/ocr/output/{name}")
+async def ocr_output_delete(name: str):
+    from app.services.ocr_service import delete_output
+
+    if not delete_output(name):
+        return JSONResponse(status_code=404, content={"error": "file not found"})
+    return {"deleted": name}
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +521,20 @@ async def delete_project(project_id: str):
 # Documents
 # ---------------------------------------------------------------------------
 
+@app.get("/documents")
+async def list_all_documents(project_id: str | None = None):
+    """All documents (across projects, newest first) or filtered by project.
+
+    Used by the v2 SPA Library view; the project-scoped route below stays
+    untouched.
+    """
+    meta = MetadataStore()
+    try:
+        return meta.list_documents(project_id or None)
+    finally:
+        meta.close()
+
+
 @app.get("/projects/{project_id}/documents")
 async def list_documents(project_id: str):
     meta = MetadataStore()
@@ -299,6 +577,71 @@ async def ingest_endpoint(document_id: str, reindex: bool = False, ocr: bool | N
         return JSONResponse(status_code=400, content={"error": str(exc)})
 
 
+@app.post("/documents/{document_id}/ingest-async")
+async def ingest_async(document_id: str, ocr_mode: str = "auto"):
+    """(Re)index a document as a background job; poll GET /jobs/{id}.
+
+    `ocr_mode`: auto (configured default) | direct (text only) | ocr (force).
+    """
+    import threading
+
+    from app.services import jobs
+
+    try:
+        ocr = _ocr_flag(ocr_mode)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    meta = MetadataStore()
+    try:
+        doc = meta.get_document(document_id)
+    finally:
+        meta.close()
+    if not doc:
+        return JSONResponse(status_code=404, content={"error": "document not found"})
+
+    job = jobs.create_job(kind="ingest", label=f"Ingest · {doc['filename']}",
+                          payload={"document_id": document_id, "ocr_mode": (ocr_mode or "auto"), "reindex": True})
+    threading.Thread(target=_run_ingest_job, args=(job["id"], document_id),
+                     kwargs={"ocr": ocr, "reindex": True}, daemon=True).start()
+    return {"job_id": job["id"], "kind": "ingest", "document": doc}
+
+
+@app.post("/projects/{project_id}/ingest-async")
+async def upload_and_ingest_async(
+    project_id: str,
+    file: UploadFile = File(...),
+    ocr_mode: str = Form("auto"),
+):
+    """Store an upload and (re)index it in the background as a /jobs item.
+
+    Returns `{job_id, document}` immediately; the document row appears in the
+    library right away (status pending → parsing → embedding → indexed) and
+    the SPA polls its status live.
+    """
+    import threading
+
+    from app.services import jobs
+
+    try:
+        ocr = _ocr_flag(ocr_mode)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    content = await file.read()
+    try:
+        doc = store_upload(project_id, content, file.filename or "unnamed")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Upload for ingest failed")
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    job = jobs.create_job(kind="ingest", label=f"Ingest · {doc['filename']}",
+                          payload={"document_id": doc["id"], "ocr_mode": (ocr_mode or "auto"), "reindex": False})
+    threading.Thread(target=_run_ingest_job, args=(job["id"], doc["id"]),
+                     kwargs={"ocr": ocr, "reindex": False}, daemon=True).start()
+    return {"job_id": job["id"], "kind": "ingest", "document": doc}
+
+
 @app.post("/projects/{project_id}/upload-and-ingest")
 async def upload_and_ingest(project_id: str, file: UploadFile = File(...), ocr: bool | None = None):
     """Store an upload and immediately ingest it with the chosen mode."""
@@ -315,6 +658,46 @@ async def upload_and_ingest(project_id: str, file: UploadFile = File(...), ocr: 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Upload+ingest failed")
         return JSONResponse(status_code=400, content={"error": str(exc), "document": doc})
+
+
+# ---------------------------------------------------------------------------
+# Async ingest (v2 SPA) — background jobs so the UI stays responsive
+# ---------------------------------------------------------------------------
+
+_OCR_MODES = ("auto", "direct", "ocr")
+
+
+def _ocr_flag(ocr_mode: str) -> bool | None:
+    """'auto' | 'direct' | 'ocr' -> None | False | True (pipeline convention)."""
+    mode = (ocr_mode or "auto").strip().lower()
+    if mode == "direct":
+        return False
+    if mode == "ocr":
+        return True
+    if mode in _OCR_MODES:
+        return None
+    raise ValueError(f"ocr_mode must be one of {', '.join(_OCR_MODES)}")
+
+
+def _run_ingest_job(job_id: str, document_id: str, *, ocr: bool | None, reindex: bool = False) -> None:
+    """Worker thread: run the full pipeline as a /jobs item."""
+    from app.ingest import pipeline
+    from app.services import jobs
+
+    try:
+        meta = MetadataStore()
+        try:
+            doc = meta.get_document(document_id)
+        finally:
+            meta.close()
+        label = doc["filename"] if doc else document_id
+        jobs.update_job(job_id, status="running", progress=None, message=f"Indexing {label}…")
+        summary = pipeline.ingest_document(document_id, reindex=reindex, ocr=ocr)
+        jobs.finish(job_id, result=summary)
+        logger.info("Ingest job %s completed for %s (%d chunks)", job_id, label, summary["chunks"])
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Ingest job %s failed for %s", job_id, document_id)
+        jobs.update_job(job_id, status="failed", error=str(exc))
 
 
 @app.delete("/documents/{document_id}")
@@ -641,6 +1024,116 @@ async def create_podcast(body: dict):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@app.post("/podcasts/generate-async")
+async def create_podcast_async(body: dict):
+    """Generate a podcast in the background as a /jobs item.
+
+    Body: {project_id, document_ids, title?, model?, provider?,
+           system_prompt?, duration_setting?, host_languages?}
+    Returns {job_id} immediately; generate_podcast creates the episode row
+    itself, so poll /jobs/{id} for stage progress (summarize -> script ->
+    synthesize) and the final podcast row id; the episode appears in
+    /podcasts with status ready/error.
+    """
+    import threading
+
+    from app.services import jobs
+
+    project_id = body.get("project_id") or ""
+    document_ids = body.get("document_ids") or []
+    if not project_id:
+        return JSONResponse(status_code=400, content={"error": "project_id required"})
+    if not document_ids:
+        return JSONResponse(status_code=400, content={"error": "document_ids required"})
+    title = (body.get("title") or "").strip() or "Untitled deep dive"
+
+    from app.podcast.generate import generate_podcast
+
+    job = jobs.create_job(
+        kind="podcast", label=f"Podcast · {title}",
+        payload={"documents": len(document_ids), "provider": body.get("provider"),
+                 "duration_setting": body.get("duration_setting") or "medium"},
+    )
+
+    def _run(job_id=job["id"]):
+        from app.services import jobs as j
+
+        def progress(done, total, action, message):
+            j.update_job(job_id, progress=(done / total) if total else None,
+                         message=f"{action} · {message}")
+        try:
+            row = generate_podcast(
+                project_id=project_id, document_ids=document_ids, title=title,
+                model=body.get("model") or None, provider=body.get("provider") or None,
+                system_prompt=body.get("system_prompt") or None,
+                duration_setting=body.get("duration_setting") or "medium",
+                host_languages=body.get("host_languages") or None,
+                progress=progress,
+            )
+            j.finish(job_id, result={k: row.get(k) for k in
+                                     ("id", "title", "status", "duration_sec", "tts_provider", "error")})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Podcast job %s failed", job_id)
+            j.update_job(job_id, status="failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name=f"podcast-{title[:20]}").start()
+    return {"job_id": job["id"], "kind": "podcast"}
+
+
+@app.post("/podcasts/{podcast_id}/regenerate-async")
+async def regenerate_podcast_async(podcast_id: str, body: dict):
+    """Regenerate a podcast in the background as a /jobs item."""
+    import threading
+
+    from app.services import jobs
+
+    meta = MetadataStore()
+    try:
+        old = meta.get_podcast(podcast_id)
+        if old and old.get("audio_path"):
+            Path(old["audio_path"]).unlink(missing_ok=True)
+        if old:
+            meta.update_podcast(podcast_id, status="generating", audio_path=None)
+    finally:
+        meta.close()
+    if not old:
+        return JSONResponse(status_code=404, content={"error": "podcast not found"})
+
+    job = jobs.create_job(kind="podcast", label=f"Regenerate · {old['title']}",
+                          payload={"documents": len(old.get("document_ids") or [])})
+    body = body or {}
+    sp = body.get("system_prompt") or old.get("system_prompt")
+    ds = body.get("duration_setting") or old.get("duration_setting") or "medium"
+
+    def _run(job_id=job["id"]):
+        from app.services import jobs as j
+
+        def progress(done, total, action, message):
+            j.update_job(job_id, progress=(done / total) if total else None,
+                         message=f"{action} · {message}")
+        try:
+            from app.podcast.generate import generate_podcast
+            row = generate_podcast(
+                project_id=old["project_id"], document_ids=old["document_ids"],
+                title=old["title"], model=body.get("model") or None,
+                provider=body.get("provider") or None, system_prompt=sp,
+                duration_setting=ds, progress=progress,
+            )
+            j.finish(job_id, result={k: row.get(k) for k in
+                                     ("id", "title", "status", "duration_sec", "tts_provider", "error")})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Podcast regenerate job %s failed", job_id)
+            j.update_job(job_id, status="failed", error=str(exc))
+            m2 = MetadataStore()
+            try:
+                m2.update_podcast(podcast_id, status="error", error=str(exc))
+            finally:
+                m2.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job["id"], "podcast_id": podcast_id, "kind": "podcast"}
+
+
 @app.get("/podcasts/{podcast_id}")
 async def get_podcast(podcast_id: str):
     meta = MetadataStore()
@@ -730,6 +1223,32 @@ async def shutdown_api():
 
     shutdown_async()  # sleeps briefly so this response returns before dying
     return {"status": "shutting_down", "message": "API and UI servers will stop."}
+
+
+# ---------------------------------------------------------------------------
+# v2.0 SPA – "Research Studio" web UI, served by the same process
+# ---------------------------------------------------------------------------
+
+_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+_DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+# NOTE: "/docs" must be mounted BEFORE the root "/" mount — StaticFiles mounts
+# never fall through on a missing file, so the root mount would swallow every
+# /docs/* path otherwise.
+if _DOCS_DIR.is_dir():
+    app.mount("/docs", StaticFiles(directory=str(_DOCS_DIR)), name="docs")
+if (_WEB_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="spa")
+
+if not (_WEB_DIR / "index.html").is_file():
+    @app.get("/")
+    async def spa_placeholder():
+        """API-only mode while the SPA files are not built yet (web/)."""
+        return {
+            "status": "ok",
+            "version": app.version,
+            "message": "API is ready. The v2.0 SPA (web/) is not built yet – "
+                       "UI_PORT (Streamlit legacy) or /docs can be used meanwhile.",
+        }
 
 
 # ---------------------------------------------------------------------------

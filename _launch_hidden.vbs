@@ -1,13 +1,11 @@
 ' ============================================================
-'  Commentarium - hidden server launcher
-'  Starts the FastAPI backend and the Streamlit UI with no
-'  windows (background) so no cmd windows appear.
+'  Commentarium v2.0 - hidden server launcher
+'  Starts ONLY the FastAPI backend (the v2 SPA is served by the
+'  same process) with no windows, so no cmd windows appear.
 '  Args come from env vars set by run.bat:
 '    LAUNCH_CWD  - project root (chdir here first)
 '    API_PYTHON  - interpreter for the API
-'    UI_PYTHON   - interpreter for the UI
-'    API_PORT    - API port
-'    UI_PORT     - UI port
+'    API_PORT    - API port (default 8010)
 ' ============================================================
 Option Explicit
 
@@ -19,23 +17,15 @@ cwd = shell.ExpandEnvironmentStrings("%LAUNCH_CWD%")
 If cwd = "%LAUNCH_CWD%" Or cwd = "" Then cwd = fso.GetParentFolderName(WScript.ScriptFullName)
 If fso.FolderExists(cwd) Then shell.CurrentDirectory = cwd
 
-Dim apiPy, uiPy, apiPort, uiPort
-apiPy  = shell.ExpandEnvironmentStrings("%API_PYTHON%")
-uiPy   = shell.ExpandEnvironmentStrings("%UI_PYTHON%")
-apiPort= shell.ExpandEnvironmentStrings("%API_PORT%")
-uiPort = shell.ExpandEnvironmentStrings("%UI_PORT%")
+Dim apiPy, apiPort
+apiPy   = shell.ExpandEnvironmentStrings("%API_PYTHON%")
+apiPort = shell.ExpandEnvironmentStrings("%API_PORT%")
 
 If apiPy = "" Then apiPy = "python"
-If uiPy  = "" Then uiPy  = "python"
-If apiPort = "" Then apiPort = "8000"
-If uiPort  = "" Then uiPort  = "8501"
+If apiPort = "" Then apiPort = "8010"
 
-' ---- API: run the programmatic uvicorn wrapper (reliable headless).
-'      It self-redirects output to data/logs/api.log so uvicorn stays alive.
-'      Port is passed as a CLI argument (immune to env inheritance issues). ----
+' ---- API: run the programmatic uvicorn wrapper (_run_api.py, which
+'      self-redirects output to data/logs/api.log so uvicorn stays
+'      alive headless). Port passed as CLI argument, not env. ----
 ' window style 0 = hidden, wait = False
 shell.Run """" & apiPy & """ """ & cwd & "\_run_api.py"" " & apiPort, 0, False
-
-' ---- UI: streamlit (works headless via pythonw) ----
-shell.Run """" & uiPy & """ -m streamlit run """ & cwd & "\app\ui\main.py"" --server.port " & uiPort & _
-         " --server.address 127.0.0.1 --server.headless true", 0, False

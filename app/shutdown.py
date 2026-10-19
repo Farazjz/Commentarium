@@ -25,12 +25,37 @@ import psutil
 
 logger = logging.getLogger("app")
 
-# Default ports (overridable via the config where available).
-API_PORT = 8000
-UI_PORT = 8501
+# Default ports (overridden at runtime from app config - see _resolve_ports).
+_API_PORT_DEFAULT = 8000
+_UI_PORT_DEFAULT = 8501
 
 # How long to wait for a process to die before forcing it.
 _GRACE_SECONDS = 6.0
+
+# Process names we are ever allowed to terminate (avoids killing unrelated
+# software that happens to hold the port). pythonw.exe matters because v2
+# launches the API headless via _run_api.py under pythonw.
+_ALLOWED_PROC_NAMES = {
+    "python", "python.exe", "pythonw", "pythonw.exe",
+    "streamlit", "uvicorn",
+}
+
+
+def _resolve_ports(api_port: int | None, ui_port: int | None) -> tuple[int, int]:
+    """Actual ports: explicit arguments first, live config second, constants last."""
+    if api_port is not None and ui_port is not None:
+        return api_port, ui_port
+    try:
+        from app.config import get_settings
+
+        cfg = get_settings()
+        if api_port is None:
+            api_port = getattr(cfg, "port", None) or _API_PORT_DEFAULT
+        if ui_port is None:
+            ui_port = getattr(cfg, "ui_port", None) or _UI_PORT_DEFAULT
+    except Exception:  # noqa: BLE001 - config unavailable -> historical defaults
+        pass
+    return api_port or _API_PORT_DEFAULT, ui_port or _UI_PORT_DEFAULT
 
 
 def _pid_on_port(port: int) -> int | None:
@@ -57,7 +82,7 @@ def _kill_port(port: int, self_pid: int) -> dict:
     try:
         proc = psutil.Process(pid)
         # Never kill unrelated processes (e.g. the SSH/system shell).
-        if proc.name() not in ("python", "python.exe", "streamlit", "uvicorn"):
+        if proc.name().lower() not in _ALLOWED_PROC_NAMES:
             return {"port": port, "pid": pid, "stopped": False,
                     "reason": f"unexpected proc ({proc.name()})"}
     except psutil.NoSuchProcess:
@@ -74,14 +99,18 @@ def _kill_port(port: int, self_pid: int) -> dict:
     return {"port": port, "pid": pid, "stopped": True, "reason": "terminated"}
 
 
-def shutdown_servers(api_port: int = API_PORT, ui_port: int = UI_PORT) -> list[dict]:
+def shutdown_servers(api_port: int | None = None, ui_port: int | None = None) -> list[dict]:
     """Stop the processes on the API and UI ports.
 
+    Ports resolve to explicit arguments, else the live `PORT` / `UI_PORT`
+    configuration (so the v2 instance on :8010 kills *itself*, and the
+    legacy Streamlit UI on UI_PORT as well).
     Kills any *other* listening server, then — if the calling process is itself
     one of the servers (e.g. running inside Streamlit) — terminates itself last
     with ``os._exit`` so the exit always completes. Returns a list of per-port
     result summaries (mainly useful when called from a third party).
     """
+    api_port, ui_port = _resolve_ports(api_port, ui_port)
     self_pid = psutil.Process().pid
     results = []
     self_seen = False
@@ -104,11 +133,11 @@ def shutdown_servers(api_port: int = API_PORT, ui_port: int = UI_PORT) -> list[d
     return results
 
 
-def shutdown_async(api_port: int = API_PORT, ui_port: int = UI_PORT) -> None:
+def shutdown_async(api_port: int | None = None, ui_port: int | None = None) -> None:
     """Fire-and-forget shutdown in a background thread.
 
-    Called from the Streamlit UI so the page can reply before the current
-    process is terminated.
+    Called from the /shutdown endpoint (and formerly the Streamlit UI) so the
+    HTTP reply can flush before the current process is terminated.
     """
     def _run() -> None:
         time.sleep(0.3)  # let the HTTP response flush first
